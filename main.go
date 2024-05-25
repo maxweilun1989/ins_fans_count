@@ -44,11 +44,13 @@ func main() {
 	defer (*context.browser).Close()
 	defer context.pw.Stop()
 
-	testUrl := "https://www.instagram.com/jonatasbacciotti/"
-
-	fansCount := getFansCount(context.page, testUrl)
-	storyLink := getStoriesLink(context.page, testUrl)
-	log.Printf("fans_count: %d, story_link: %s", fansCount, storyLink)
+	for _, user := range users {
+		user.fansCount = getFansCount(context.page, user.url)
+		user.storyLink = getStoriesLink(context.page, user.url)
+		log.Printf("fans_count: %d, story_link: %s for %s", user.fansCount, user.storyLink, user.url)
+		time.Sleep(5 * time.Second)
+	}
+	updateDataToDb(users)
 }
 
 // <editor-fold desc="playwright function">
@@ -192,6 +194,21 @@ func findUserEmptyData() ([]User, error) {
 		users = append(users, User{url: url})
 	}
 	return users, nil
+}
+
+func updateDataToDb(users []User) {
+	db, err := connectToDB()
+	if err != nil {
+		log.Fatalf("Can not connect to db, %v", err)
+	}
+	defer db.Close()
+
+	for _, user := range users {
+		_, err := db.Exec("UPDATE user SET story_link = ?, fans_count = ? WHERE url = ?", user.storyLink, user.fansCount, user.url)
+		if err != nil {
+			log.Print("Can not update db, %v ", err)
+		}
+	}
 }
 
 func insertFilesToDb(path string) {
