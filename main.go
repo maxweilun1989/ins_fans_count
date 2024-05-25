@@ -44,36 +44,11 @@ func main() {
 	defer (*context.browser).Close()
 	defer context.pw.Stop()
 
-	url := "https://www.instagram.com/jonatasbacciotti/"
-	getFansCount(context.page, url)
+	testUrl := "https://www.instagram.com/jonatasbacciotti/"
 
-	storiesLink := getStoriesLink(url)
-	if storiesLink == "" {
-		return
-	}
-	if _, err := (*context.page).Goto(storiesLink); err != nil {
-		log.Printf("Can not go to stories page, %v", err)
-		return
-	}
-
-	newUrl := (*context.page).URL()
-	if !strings.Contains(newUrl, storiesLink) {
-		log.Printf("Can not go to stories page, %v", err)
-		return
-	}
-
-	content, err := (*context.page).Content()
-	if err != nil {
-		log.Printf("Can not read content, %v", err)
-		return
-	}
-
-	lines := strings.Split(content, "\n")
-	for _, line := range lines {
-		if strings.Contains(line, "\"story_link\"") {
-			log.Printf("Found stories: %s", line)
-		}
-	}
+	fansCount := getFansCount(context.page, testUrl)
+	storyLink := getStoriesLink(context.page, testUrl)
+	log.Printf("fans_count: %d, story_link: %s", fansCount, storyLink)
 }
 
 // <editor-fold desc="playwright function">
@@ -138,6 +113,38 @@ func getFansCount(pageRef *playwright.Page, url string) int {
 		}
 	}
 	return -1
+}
+
+func getStoriesLink(pageRef *playwright.Page, url string) string {
+	page := *pageRef
+	storiesLink := findStoriesLink(url)
+	if storiesLink == "" {
+		return ""
+	}
+	if _, err := page.Goto(storiesLink); err != nil {
+		log.Printf("Can not go to stories page, %v", err)
+		return ""
+	}
+
+	newUrl := page.URL()
+	if !strings.Contains(newUrl, storiesLink) {
+		log.Printf("Can not go to stories page, storiesLink: %s, newUrl: %s", storiesLink, newUrl)
+		return ""
+	}
+
+	content, err := page.Content()
+	if err != nil {
+		log.Printf("Can not read content, %v", err)
+		return ""
+	}
+
+	lines := strings.Split(content, "\n")
+	for _, line := range lines {
+		if strings.Contains(line, "\"story_link\"") {
+			return parseStoryLink(line)
+		}
+	}
+	return ""
 }
 
 //</editor-fold>
@@ -286,7 +293,7 @@ func parseStoryLink(link string) string {
 	return result["url"].(string)
 }
 
-func getStoriesLink(site string) string {
+func findStoriesLink(site string) string {
 	parsedUrl, err := url.Parse(site)
 	if err != nil {
 		return ""

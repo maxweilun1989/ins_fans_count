@@ -10,7 +10,7 @@ import (
 func TestGetStoriesLink(t *testing.T) {
 	url := "https://www.instagram.com/jonatasbacciotti/"
 	expected := "https://www.instagram.com/stories/jonatasbacciotti/"
-	stories := getStoriesLink(url)
+	stories := findStoriesLink(url)
 	if stories != expected {
 		t.Errorf("Expected %s, got %s", expected, stories)
 	}
