@@ -35,3 +35,12 @@ func TestParseCount(t *testing.T) {
 func TestParseStoryLink(t *testing.T) {
 	testParseStoryLink()
 }
+
+func TestParseConfig(t *testing.T) {
+	config, err := parseConfig()
+
+	if err != nil {
+		t.Errorf("Expected nil, got %v", err)
+	}
+	t.Logf("Config: %v", config)
+}

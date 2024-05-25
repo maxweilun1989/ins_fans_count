@@ -1,0 +1,11 @@
+{
+  "accounts": [
+    {
+      "username": "lun.wei@outlook.com",
+      "password": "Wl@19890919"
+    }
+  ],
+  "delay_config": {
+    "delay_for_next": 5000
+  }
+}

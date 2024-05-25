@@ -27,6 +27,20 @@ type PlayWrightContext struct {
 	page    *playwright.Page
 }
 
+type Account struct {
+	Username string `json:"username"`
+	Password string `json:"password"`
+}
+
+type DelayConfig struct {
+	DelayForNext int `json:"delay_for_next"`
+}
+
+type Config struct {
+	Accounts    []Account   `json:"accounts"`
+	DelayConfig DelayConfig `json:"delay_config"`
+}
+
 func main() {
 	log.Printf("start")
 	//insertFilesToDb("./assets/blogs.txt")
@@ -170,7 +184,7 @@ func connectToDB() (*sql.DB, error) {
 	return db, err
 }
 
-func findUserEmptyData() ([]User, error) {
+func findUserEmptyData() ([]*User, error) {
 	db, err := connectToDB()
 	if err != nil {
 		log.Fatalf("Can not connect to db, %v", err)
@@ -183,7 +197,7 @@ func findUserEmptyData() ([]User, error) {
 	}
 	defer rows.Close()
 
-	var users []User
+	var users []*User
 	for rows.Next() {
 		var url string
 
@@ -191,12 +205,12 @@ func findUserEmptyData() ([]User, error) {
 		if err != nil {
 			log.Fatalf("scan error, %v", err)
 		}
-		users = append(users, User{url: url})
+		users = append(users, &User{url: url})
 	}
 	return users, nil
 }
 
-func updateDataToDb(users []User) {
+func updateDataToDb(users []*User) {
 	db, err := connectToDB()
 	if err != nil {
 		log.Fatalf("Can not connect to db, %v", err)
@@ -206,8 +220,9 @@ func updateDataToDb(users []User) {
 	for _, user := range users {
 		_, err := db.Exec("UPDATE user SET story_link = ?, fans_count = ? WHERE url = ?", user.storyLink, user.fansCount, user.url)
 		if err != nil {
-			log.Print("Can not update db, %v ", err)
+			log.Printf("Can not update db, %v ", err)
 		}
+		log.Printf("update user(%s) count %d, link: %s success", user.url, user.fansCount, user.storyLink)
 	}
 }
 
@@ -317,6 +332,22 @@ func findStoriesLink(site string) string {
 	}
 	newPath := "stories" + parsedUrl.Path
 	return parsedUrl.Scheme + "://" + parsedUrl.Host + "/" + newPath
+}
+
+func parseConfig() (*Config, error) {
+	file, err := os.Open("config.json")
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	decoder := json.NewDecoder(file)
+	config := Config{}
+	err = decoder.Decode(&config)
+	if err != nil {
+		return nil, err
+	}
+	return &config, nil
 }
 
 func testParseCount() {
