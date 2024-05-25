@@ -44,14 +44,27 @@ type Config struct {
 func main() {
 	log.Printf("start")
 	//insertFilesToDb("./assets/blogs.txt")
+	config, err := parseConfig()
+	if err != nil {
+		log.Fatalf("Can not parse config, %v", err)
+	}
+
+	if len(config.Accounts) == 0 {
+		log.Fatalf("No account found")
+
+	}
 
 	users, err := findUserEmptyData()
 	if err != nil {
 		log.Fatalf("Can not find user empty data, %v", err)
 	}
 	log.Printf("has %d to handle", len(users))
+	if len(users) == 0 {
+		return
+	}
 
-	context, err := logInToInstagram("651878205@qq.com", "Wl@19890919")
+	account := config.Accounts[0]
+	context, err := logInToInstagram(account.Username, account.Password)
 	if err != nil {
 		log.Fatalf("Can not login to instagram, %v", err)
 	}
@@ -62,7 +75,7 @@ func main() {
 		user.fansCount = getFansCount(context.page, user.url)
 		user.storyLink = getStoriesLink(context.page, user.url)
 		log.Printf("fans_count: %d, story_link: %s for %s", user.fansCount, user.storyLink, user.url)
-		time.Sleep(5 * time.Second)
+		time.Sleep(time.Duration(config.DelayConfig.DelayForNext) * time.Microsecond)
 	}
 	updateDataToDb(users)
 }
