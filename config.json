@@ -9,5 +9,6 @@
     "delay_for_next": 2000,
     "delay_after_login": 10000
   },
-  "dsn": "root:19890919@tcp(localhost:3306)/instagram"
+  "dsn": "root:19890919@tcp(localhost:3306)/instagram",
+  "table": "user"
 }

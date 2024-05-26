@@ -43,6 +43,7 @@ type Config struct {
 	Accounts    []Account   `json:"accounts"`
 	DelayConfig DelayConfig `json:"delay_config"`
 	Dsn         string      `json:"dsn"`
+	Table       string      `json:"table"`
 }
 
 func main() {
@@ -60,7 +61,7 @@ func main() {
 
 	}
 
-	users, err := findUserEmptyData(config.Dsn)
+	users, err := findUserEmptyData(config.Dsn, config.Table)
 	if err != nil {
 		log.Fatalf("Can not find user empty data, %v", err)
 	}
@@ -106,7 +107,7 @@ func updateUserInfo(users []*User, account Account, config *Config, pw *playwrig
 		log.Printf("fans_count: %s, story_link: %s for %s", user.fansCount, user.storyLink, user.url)
 		time.Sleep(time.Duration(config.DelayConfig.DelayForNext) * time.Millisecond)
 	}
-	updateDataToDb(users, config.Dsn)
+	updateDataToDb(users, config.Dsn, config.Table)
 }
 
 func logInToInstagram(userName string, password string, pw *playwright.Playwright, config *Config) (*PlayWrightContext, error) {
@@ -235,14 +236,15 @@ func connectToDB(dsn string) (*sql.DB, error) {
 	return db, err
 }
 
-func findUserEmptyData(dsn string) ([]*User, error) {
+func findUserEmptyData(dsn string, table string) ([]*User, error) {
 	db, err := connectToDB(dsn)
 	if err != nil {
 		log.Fatalf("Can not connect to db, %v", err)
 	}
 	defer db.Close()
 
-	rows, err := db.Query("SELECT  url FROM user WHERE story_link IS NULL or fans_count is NUll or fans_count = \"\" or story_link =\"\"")
+	queryStr := fmt.Sprintf("SELECT  url FROM %s WHERE story_link IS NULL or fans_count is NUll or fans_count = \"\" or story_link =\"\"", table)
+	rows, err := db.Query(queryStr)
 	if err != nil {
 		log.Fatalf("Can not select db, %v ", err)
 	}
@@ -261,7 +263,7 @@ func findUserEmptyData(dsn string) ([]*User, error) {
 	return users, nil
 }
 
-func updateDataToDb(users []*User, dsn string) {
+func updateDataToDb(users []*User, dsn string, table string) {
 	db, err := connectToDB(dsn)
 	if err != nil {
 		log.Fatalf("Can not connect to db, %v", err)
@@ -270,7 +272,8 @@ func updateDataToDb(users []*User, dsn string) {
 
 	for _, user := range users {
 		if user.fansCount != "" || user.storyLink != "" {
-			_, err := db.Exec("UPDATE user SET story_link = ?, fans_count = ? WHERE url = ?", user.storyLink, user.fansCount, user.url)
+			execStr := fmt.Sprintf("UPDATE %s SET story_link = ?, fans_count = ? WHERE url = ?", table)
+			_, err := db.Exec(execStr, user.storyLink, user.fansCount, user.url)
 			if err != nil {
 				log.Printf("Can not update db, %v ", err)
 			}
