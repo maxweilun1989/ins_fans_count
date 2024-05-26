@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"github.com/playwright-community/playwright-go"
 	"log"
 	"net/url"
@@ -19,7 +20,7 @@ import (
 type User struct {
 	url       string
 	storyLink string
-	fansCount int
+	fansCount string
 }
 
 type PlayWrightContext struct {
@@ -46,11 +47,13 @@ type Config struct {
 
 func main() {
 	log.Printf("start")
-	//insertFilesToDb("./assets/blogs.txt")
+
 	config, err := parseConfig()
 	if err != nil {
 		log.Fatalf("Can not parse config, %v", err)
 	}
+	//insertFilesToDb("./assets/blogs.txt", config.Dsn)
+	//return
 
 	if len(config.Accounts) == 0 {
 		log.Fatalf("No account found")
@@ -72,7 +75,7 @@ func main() {
 	}
 	defer pw.Stop()
 
-	perSize := len(users) / 2
+	perSize := len(users) / len(config.Accounts)
 	var wg sync.WaitGroup
 	for i, account := range config.Accounts {
 		begin := i * perSize
@@ -100,7 +103,7 @@ func updateUserInfo(users []*User, account Account, config *Config, pw *playwrig
 	for _, user := range users {
 		user.fansCount = getFansCount(context.page, user.url)
 		user.storyLink = getStoriesLink(context.page, user.url)
-		log.Printf("fans_count: %d, story_link: %s for %s", user.fansCount, user.storyLink, user.url)
+		log.Printf("fans_count: %s, story_link: %s for %s", user.fansCount, user.storyLink, user.url)
 		time.Sleep(time.Duration(config.DelayConfig.DelayForNext) * time.Millisecond)
 	}
 	updateDataToDb(users, config.Dsn)
@@ -144,25 +147,40 @@ func logInToInstagram(userName string, password string, pw *playwright.Playwrigh
 	return &PlayWrightContext{pw: pw, browser: &browser, page: &page}, nil
 }
 
-func getFansCount(pageRef *playwright.Page, url string) int {
+func getFansCount(pageRef *playwright.Page, websiteUrl string) string {
 	var page = *pageRef
-	if _, err := page.Goto(url); err != nil {
+	if _, err := page.Goto(websiteUrl); err != nil {
 		log.Printf("Can not go to user page, %v", err)
-		return -1
+		return ""
 	}
 
-	content, err := page.Content()
+	path, err := url.Parse(websiteUrl)
+	if err != nil {
+		log.Printf("can not parse url(%s) \n", path)
+		return ""
+	}
+
+	var websitePath = path.Path
+	if strings.LastIndex(websitePath, "/") != len(websitePath)-1 {
+		websitePath = websitePath + "/"
+	}
+
+	targetPath := websitePath + "followers/"
+	selector := fmt.Sprintf(`a[href="%s"]`, targetPath)
+
+	aEle, err := page.QuerySelector(selector)
+	if err != nil || aEle == nil {
+		log.Printf("======> can not find (%s) \n", targetPath)
+		return ""
+	}
+
+	content, err := aEle.TextContent()
 	if err != nil {
 		log.Fatalf("failed to read content")
 	}
 
-	lines := strings.Split(content, "\n")
-	for _, line := range lines {
-		if strings.Contains(line, "follower_count") {
-			return parseFansCount(line)
-		}
-	}
-	return -1
+	lines := strings.Split(content, " ")
+	return lines[0]
 }
 
 func getStoriesLink(pageRef *playwright.Page, url string) string {
@@ -224,7 +242,7 @@ func findUserEmptyData(dsn string) ([]*User, error) {
 	}
 	defer db.Close()
 
-	rows, err := db.Query("SELECT  url FROM user WHERE story_link IS NULL or fans_count is NUll or fans_count = -1 or story_link =\"\"")
+	rows, err := db.Query("SELECT  url FROM user WHERE story_link IS NULL or fans_count is NUll or fans_count = \"\" or story_link =\"\"")
 	if err != nil {
 		log.Fatalf("Can not select db, %v ", err)
 	}
@@ -251,11 +269,13 @@ func updateDataToDb(users []*User, dsn string) {
 	defer db.Close()
 
 	for _, user := range users {
-		_, err := db.Exec("UPDATE user SET story_link = ?, fans_count = ? WHERE url = ?", user.storyLink, user.fansCount, user.url)
-		if err != nil {
-			log.Printf("Can not update db, %v ", err)
+		if user.fansCount != "" || user.storyLink != "" {
+			_, err := db.Exec("UPDATE user SET story_link = ?, fans_count = ? WHERE url = ?", user.storyLink, user.fansCount, user.url)
+			if err != nil {
+				log.Printf("Can not update db, %v ", err)
+			}
+			log.Printf("update user(%s) count %s, link: %s success", user.url, user.fansCount, user.storyLink)
 		}
-		log.Printf("update user(%s) count %d, link: %s success", user.url, user.fansCount, user.storyLink)
 	}
 }
 

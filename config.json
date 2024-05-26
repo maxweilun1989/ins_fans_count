@@ -1,13 +1,13 @@
 {
   "accounts": [
     {
-      "username": "lun.wei@outlook.com",
+      "username": "lun.wei.0919",
       "password": "Wl@19890919"
     }
   ],
   "delay_config": {
     "delay_for_next": 2000,
-    "delay_after_login": 60000
+    "delay_after_login": 10000
   },
   "dsn": "root:19890919@tcp(localhost:3306)/instagram"
 }
