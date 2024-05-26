@@ -55,13 +55,18 @@ func main() {
 	}
 	//insertFilesToDb("./assets/blogs.txt", config.Dsn)
 	//return
-
 	if len(config.Accounts) == 0 {
 		log.Fatalf("No account found")
 
 	}
 
-	users, err := findUserEmptyData(config.Dsn, config.Table)
+	db, err := connectToDB(config.Dsn)
+	if err != nil {
+		log.Fatalf("failed to conenct to database %s, error: %v", config.Dsn, err)
+	}
+	defer db.Close()
+
+	users, err := findUserEmptyData(db, config.Table)
 	if err != nil {
 		log.Fatalf("Can not find user empty data, %v", err)
 	}
@@ -87,14 +92,14 @@ func main() {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			updateUserInfo(users[begin:end], account, config, pw)
+			updateUserInfo(users[begin:end], account, config, pw, db)
 		}()
 	}
 	wg.Wait()
 }
 
 // <editor-fold desc="playwright function">
-func updateUserInfo(users []*User, account Account, config *Config, pw *playwright.Playwright) {
+func updateUserInfo(users []*User, account Account, config *Config, pw *playwright.Playwright, db *sql.DB) {
 	context, err := logInToInstagram(account.Username, account.Password, pw, config)
 	if err != nil {
 		log.Fatalf("Can not login to instagram, %v", err)
@@ -105,9 +110,9 @@ func updateUserInfo(users []*User, account Account, config *Config, pw *playwrig
 		user.fansCount = getFansCount(context.page, user.url)
 		user.storyLink = getStoriesLink(context.page, user.url)
 		log.Printf("fans_count: %s, story_link: %s for %s", user.fansCount, user.storyLink, user.url)
+		updateSingleDataToDb(user, db, config.Table)
 		time.Sleep(time.Duration(config.DelayConfig.DelayForNext) * time.Millisecond)
 	}
-	updateDataToDb(users, config.Dsn, config.Table)
 }
 
 func logInToInstagram(userName string, password string, pw *playwright.Playwright, config *Config) (*PlayWrightContext, error) {
@@ -236,14 +241,8 @@ func connectToDB(dsn string) (*sql.DB, error) {
 	return db, err
 }
 
-func findUserEmptyData(dsn string, table string) ([]*User, error) {
-	db, err := connectToDB(dsn)
-	if err != nil {
-		log.Fatalf("Can not connect to db, %v", err)
-	}
-	defer db.Close()
-
-	queryStr := fmt.Sprintf("SELECT  url FROM %s WHERE story_link IS NULL or fans_count is NUll or fans_count = \"\" or story_link =\"\"", table)
+func findUserEmptyData(db *sql.DB, table string) ([]*User, error) {
+	queryStr := fmt.Sprintf("SELECT  url FROM %s WHERE story_link IS NULL or fans_count is NUll", table)
 	rows, err := db.Query(queryStr)
 	if err != nil {
 		log.Fatalf("Can not select db, %v ", err)
@@ -263,22 +262,20 @@ func findUserEmptyData(dsn string, table string) ([]*User, error) {
 	return users, nil
 }
 
-func updateDataToDb(users []*User, dsn string, table string) {
-	db, err := connectToDB(dsn)
-	if err != nil {
-		log.Fatalf("Can not connect to db, %v", err)
-	}
-	defer db.Close()
-
+func updateDataToDb(users []*User, db *sql.DB, table string) {
 	for _, user := range users {
-		if user.fansCount != "" || user.storyLink != "" {
-			execStr := fmt.Sprintf("UPDATE %s SET story_link = ?, fans_count = ? WHERE url = ?", table)
-			_, err := db.Exec(execStr, user.storyLink, user.fansCount, user.url)
-			if err != nil {
-				log.Printf("Can not update db, %v ", err)
-			}
-			log.Printf("update user(%s) count %s, link: %s success", user.url, user.fansCount, user.storyLink)
+		updateSingleDataToDb(user, db, table)
+	}
+}
+
+func updateSingleDataToDb(user *User, db *sql.DB, table string) {
+	if user.fansCount != "" || user.storyLink != "" {
+		execStr := fmt.Sprintf("UPDATE %s SET story_link = ?, fans_count = ? WHERE url = ?", table)
+		_, err := db.Exec(execStr, user.storyLink, user.fansCount, user.url)
+		if err != nil {
+			log.Printf("Can not update db, %v ", err)
 		}
+		log.Printf("update user(%s) count %s, link: %s success", user.url, user.fansCount, user.storyLink)
 	}
 }
 
@@ -309,7 +306,6 @@ func insertFilesToDb(path string, dsn string) {
 	if err := scanner.Err(); err != nil {
 		log.Fatalf("Can not read file(%s), %v", path, err)
 	}
-
 }
 
 //</editor-fold>
