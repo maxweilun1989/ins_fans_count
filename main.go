@@ -10,6 +10,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	_ "github.com/go-sql-driver/mysql"
@@ -33,12 +34,14 @@ type Account struct {
 }
 
 type DelayConfig struct {
-	DelayForNext int `json:"delay_for_next"`
+	DelayForNext    int `json:"delay_for_next"`
+	DelayAfterLogin int `json:"delay_after_login"`
 }
 
 type Config struct {
 	Accounts    []Account   `json:"accounts"`
 	DelayConfig DelayConfig `json:"delay_config"`
+	Dsn         string      `json:"dsn"`
 }
 
 func main() {
@@ -54,7 +57,7 @@ func main() {
 
 	}
 
-	users, err := findUserEmptyData()
+	users, err := findUserEmptyData(config.Dsn)
 	if err != nil {
 		log.Fatalf("Can not find user empty data, %v", err)
 	}
@@ -63,29 +66,47 @@ func main() {
 		return
 	}
 
-	account := config.Accounts[0]
-	context, err := logInToInstagram(account.Username, account.Password)
+	pw, err := playwright.Run()
+	if err != nil {
+		log.Fatalf("Can not run playwright, %v", err)
+	}
+	defer pw.Stop()
+
+	perSize := len(users) / 2
+	var wg sync.WaitGroup
+	for i, account := range config.Accounts {
+		begin := i * perSize
+		end := (i + 1) * perSize
+		if end > len(users) {
+			end = len(users)
+		}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			updateUserInfo(users[begin:end], account, config, pw)
+		}()
+	}
+	wg.Wait()
+}
+
+// <editor-fold desc="playwright function">
+func updateUserInfo(users []*User, account Account, config *Config, pw *playwright.Playwright) {
+	context, err := logInToInstagram(account.Username, account.Password, pw, config)
 	if err != nil {
 		log.Fatalf("Can not login to instagram, %v", err)
 	}
 	defer (*context.browser).Close()
-	defer context.pw.Stop()
 
 	for _, user := range users {
 		user.fansCount = getFansCount(context.page, user.url)
 		user.storyLink = getStoriesLink(context.page, user.url)
 		log.Printf("fans_count: %d, story_link: %s for %s", user.fansCount, user.storyLink, user.url)
-		time.Sleep(time.Duration(config.DelayConfig.DelayForNext) * time.Microsecond)
+		time.Sleep(time.Duration(config.DelayConfig.DelayForNext) * time.Millisecond)
 	}
-	updateDataToDb(users)
+	updateDataToDb(users, config.Dsn)
 }
 
-// <editor-fold desc="playwright function">
-func logInToInstagram(userName string, password string) (*PlayWrightContext, error) {
-	pw, err := playwright.Run()
-	if err != nil {
-		log.Fatalf("Can not run playwright, %v", err)
-	}
+func logInToInstagram(userName string, password string, pw *playwright.Playwright, config *Config) (*PlayWrightContext, error) {
 	browser, err := pw.Chromium.Launch(playwright.BrowserTypeLaunchOptions{
 		Headless: playwright.Bool(false),
 	})
@@ -118,7 +139,7 @@ func logInToInstagram(userName string, password string) (*PlayWrightContext, err
 		log.Fatalf("Can not fill password, %v", err)
 	}
 
-	time.Sleep(10 * time.Second)
+	time.Sleep(time.Duration(config.DelayConfig.DelayAfterLogin) * time.Millisecond)
 
 	return &PlayWrightContext{pw: pw, browser: &browser, page: &page}, nil
 }
@@ -179,8 +200,7 @@ func getStoriesLink(pageRef *playwright.Page, url string) string {
 //</editor-fold>
 
 // <editor-fold desc="db functions">
-func connectToDB() (*sql.DB, error) {
-	dsn := "root:19890919@tcp(localhost:3306)/instagram?timeout=2s"
+func connectToDB(dsn string) (*sql.DB, error) {
 	db, err := sql.Open("mysql", dsn)
 	if err != nil {
 		log.Fatalf("Can not open db(%s), %v", dsn, err)
@@ -197,14 +217,14 @@ func connectToDB() (*sql.DB, error) {
 	return db, err
 }
 
-func findUserEmptyData() ([]*User, error) {
-	db, err := connectToDB()
+func findUserEmptyData(dsn string) ([]*User, error) {
+	db, err := connectToDB(dsn)
 	if err != nil {
 		log.Fatalf("Can not connect to db, %v", err)
 	}
 	defer db.Close()
 
-	rows, err := db.Query("SELECT  url FROM user WHERE story_link IS NULL or fans_count is NUll")
+	rows, err := db.Query("SELECT  url FROM user WHERE story_link IS NULL or fans_count is NUll or fans_count = -1 or story_link =\"\"")
 	if err != nil {
 		log.Fatalf("Can not select db, %v ", err)
 	}
@@ -223,8 +243,8 @@ func findUserEmptyData() ([]*User, error) {
 	return users, nil
 }
 
-func updateDataToDb(users []*User) {
-	db, err := connectToDB()
+func updateDataToDb(users []*User, dsn string) {
+	db, err := connectToDB(dsn)
 	if err != nil {
 		log.Fatalf("Can not connect to db, %v", err)
 	}
@@ -239,14 +259,14 @@ func updateDataToDb(users []*User) {
 	}
 }
 
-func insertFilesToDb(path string) {
+func insertFilesToDb(path string, dsn string) {
 	file, err := os.Open(path)
 	if err != nil {
 		log.Fatalf("Can not open file(%s), %v", path, err)
 	}
 	defer file.Close()
 
-	db, err := connectToDB()
+	db, err := connectToDB(dsn)
 	if err != nil {
 		log.Fatalf("Can not connect to db, %v", err)
 	}
