@@ -11,5 +11,5 @@
   },
   "dsn": "root:19890919@tcp(localhost:3306)/instagram",
   "table": "user",
-  "showBrowser": false
+  "showBrowser": true
 }
