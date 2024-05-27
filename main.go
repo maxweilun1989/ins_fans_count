@@ -44,6 +44,7 @@ type Config struct {
 	DelayConfig DelayConfig `json:"delay_config"`
 	Dsn         string      `json:"dsn"`
 	Table       string      `json:"table"`
+	ShowBrowser bool        `json:"showBrowser"`
 }
 
 func main() {
@@ -116,8 +117,9 @@ func updateUserInfo(users []*User, account Account, config *Config, pw *playwrig
 }
 
 func logInToInstagram(userName string, password string, pw *playwright.Playwright, config *Config) (*PlayWrightContext, error) {
+	headless := !config.ShowBrowser
 	browser, err := pw.Chromium.Launch(playwright.BrowserTypeLaunchOptions{
-		Headless: playwright.Bool(false),
+		Headless: playwright.Bool(headless),
 	})
 	if err != nil {
 		log.Fatalf("Can not launch browser, %v", err)
