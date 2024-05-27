@@ -189,9 +189,9 @@ func getFansCount(pageRef *playwright.Page, websiteUrl string) string {
 	return lines[0]
 }
 
-func getStoriesLink(pageRef *playwright.Page, url string) string {
+func getStoriesLink(pageRef *playwright.Page, webSiteUrl string) string {
 	page := *pageRef
-	storiesLink := findStoriesLink(url)
+	storiesLink := findStoriesLink(webSiteUrl)
 	if storiesLink == "" {
 		return ""
 	}
@@ -213,12 +213,32 @@ func getStoriesLink(pageRef *playwright.Page, url string) string {
 	}
 
 	lines := strings.Split(content, "\n")
+	result := make([]string, 0)
+
 	for _, line := range lines {
 		if strings.Contains(line, "\"story_link\"") {
-			return parseStoryLink(line)
+			link := parseStoryLink(line)
+			if len(link) == 0 {
+				continue
+			}
+			linkUrl, err := url.Parse(link)
+			if err != nil {
+				result = append(result, link)
+				continue
+			}
+			linkQuery, err := url.ParseQuery(linkUrl.RawQuery)
+			if err != nil || !linkQuery.Has("u") {
+				result = append(result, link)
+				continue
+			}
+			result = append(result, linkQuery.Get("u"))
 		}
 	}
-	return ""
+
+	if len(result) == 0 {
+		return ""
+	}
+	return strings.Join(result, ",")
 }
 
 //</editor-fold>
@@ -242,7 +262,7 @@ func connectToDB(dsn string) (*sql.DB, error) {
 }
 
 func findUserEmptyData(db *sql.DB, table string) ([]*User, error) {
-	queryStr := fmt.Sprintf("SELECT  url FROM %s WHERE story_link IS NULL or fans_count is NUll", table)
+	queryStr := fmt.Sprintf("SELECT  url FROM %s WHERE fans_count is NUll or fans_count = \"\"", table)
 	rows, err := db.Query(queryStr)
 	if err != nil {
 		log.Fatalf("Can not select db, %v ", err)
@@ -422,14 +442,27 @@ func testParseStoryLink() {
 		log.Fatalf("Can not open file, %v", err)
 	}
 	scanner := bufio.NewScanner(file)
+	result := make([]string, 0)
 	for scanner.Scan() {
 		line := scanner.Text()
+
 		link := parseStoryLink(line)
-		if link != "" {
-			log.Printf("The link is: %s\n", link)
+		if len(link) == 0 {
+			continue
 		}
+		linkUrl, err := url.Parse(link)
+		if err != nil {
+			result = append(result, link)
+			continue
+		}
+		linkQuery, err := url.ParseQuery(linkUrl.RawQuery)
+		if err != nil || !linkQuery.Has("u") {
+			result = append(result, link)
+			continue
+		}
+		result = append(result, linkQuery.Get("u"))
 	}
-	log.Printf("err: %v", scanner.Err())
+	log.Println(strings.Join(result, ","))
 }
 
 //</editor-fold>
