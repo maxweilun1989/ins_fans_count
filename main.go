@@ -20,7 +20,7 @@ import (
 type User struct {
 	url       string
 	storyLink string
-	fansCount string
+	fansCount int
 }
 
 type PlayWrightContext struct {
@@ -122,7 +122,15 @@ func logInToInstagram(userName string, password string, pw *playwright.Playwrigh
 	if err != nil {
 		log.Fatalf("Can not launch browser, %v", err)
 	}
-	page, err := browser.NewPage()
+	contextOptions := playwright.BrowserNewContextOptions{
+		Locale: playwright.String("en-US"), // 设置语言为简体中文
+	}
+	context, err := browser.NewContext(contextOptions)
+	if err != nil {
+		log.Fatalf("failed to set local")
+	}
+
+	page, err := context.NewPage()
 	if err != nil {
 		log.Fatalf("Can not create page, %v", err)
 
@@ -153,17 +161,17 @@ func logInToInstagram(userName string, password string, pw *playwright.Playwrigh
 	return &PlayWrightContext{pw: pw, browser: &browser, page: &page}, nil
 }
 
-func getFansCount(pageRef *playwright.Page, websiteUrl string) string {
+func getFansCount(pageRef *playwright.Page, websiteUrl string) int {
 	var page = *pageRef
 	if _, err := page.Goto(websiteUrl); err != nil {
 		log.Printf("Can not go to user page, %v", err)
-		return ""
+		return -1
 	}
 
 	path, err := url.Parse(websiteUrl)
 	if err != nil {
 		log.Printf("can not parse url(%s) \n", path)
-		return ""
+		return -1
 	}
 
 	var websitePath = path.Path
@@ -177,16 +185,22 @@ func getFansCount(pageRef *playwright.Page, websiteUrl string) string {
 	aEle, err := page.QuerySelector(selector)
 	if err != nil || aEle == nil {
 		log.Printf("======> can not find (%s) \n", targetPath)
-		return ""
+		return -1
 	}
 
 	content, err := aEle.TextContent()
 	if err != nil {
 		log.Fatalf("failed to read content")
 	}
-
 	lines := strings.Split(content, " ")
-	return lines[0]
+
+	countStr := lines[0]
+	count, err := parseFollowerCount(countStr)
+	if err != nil {
+		log.Printf("---- falied to convert %s to int(%v)", countStr, err)
+		return -1
+	}
+	return count
 }
 
 func getStoriesLink(pageRef *playwright.Page, webSiteUrl string) string {
@@ -262,7 +276,7 @@ func connectToDB(dsn string) (*sql.DB, error) {
 }
 
 func findUserEmptyData(db *sql.DB, table string) ([]*User, error) {
-	queryStr := fmt.Sprintf("SELECT  url FROM %s WHERE fans_count is NUll or fans_count = \"\"", table)
+	queryStr := fmt.Sprintf("SELECT  url FROM %s WHERE fans_count <=0 or fans_count is null", table)
 	rows, err := db.Query(queryStr)
 	if err != nil {
 		log.Fatalf("Can not select db, %v ", err)
@@ -289,7 +303,7 @@ func updateDataToDb(users []*User, db *sql.DB, table string) {
 }
 
 func updateSingleDataToDb(user *User, db *sql.DB, table string) {
-	if user.fansCount != "" || user.storyLink != "" {
+	if user.fansCount != -1 || user.storyLink != "" {
 		execStr := fmt.Sprintf("UPDATE %s SET story_link = ?, fans_count = ? WHERE url = ?", table)
 		_, err := db.Exec(execStr, user.storyLink, user.fansCount, user.url)
 		if err != nil {
@@ -420,6 +434,44 @@ func parseConfig() (*Config, error) {
 		return nil, err
 	}
 	return &config, nil
+}
+
+func parseFollowerCount(s string) (int, error) {
+	// 去掉字符串中的空格
+	s = strings.TrimSpace(s)
+
+	// 检查字符串的最后一个字符以确定单位
+	length := len(s)
+	if length == 0 {
+		return 0, fmt.Errorf("invalid format")
+	}
+
+	unit := s[length-1]
+	numberStr := s[:length-1]
+	var multiplier int
+
+	switch unit {
+	case 'K', 'k':
+		multiplier = 1000
+	case 'M', 'm':
+		multiplier = 1000000
+	case 'B', 'b':
+		multiplier = 1000000000
+	default:
+		// 如果没有单位，尝试直接转换为整数
+		numberStr = s
+		multiplier = 1
+	}
+
+	// 将数字部分转换为浮点数
+	number, err := strconv.ParseFloat(numberStr, 64)
+	if err != nil {
+		return 0, fmt.Errorf("invalid number format: %v", err)
+	}
+
+	// 计算实际的粉丝数
+	followers := int(number * float64(multiplier))
+	return followers, nil
 }
 
 func testParseCount() {
