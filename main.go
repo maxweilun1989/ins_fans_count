@@ -17,6 +17,8 @@ import (
 	_ "github.com/go-sql-driver/mysql"
 )
 
+// update user set fans_count = -1 where story_link = "" or story_link is null;
+
 type User struct {
 	url       string
 	storyLink string
@@ -167,42 +169,37 @@ func getFansCount(pageRef *playwright.Page, websiteUrl string) int {
 	var page = *pageRef
 	if _, err := page.Goto(websiteUrl); err != nil {
 		log.Printf("Can not go to user page, %v", err)
-		return -1
 	}
 
-	path, err := url.Parse(websiteUrl)
+	_, err := page.WaitForSelector("main")
 	if err != nil {
-		log.Printf("can not parse url(%s) \n", path)
-		return -1
+		log.Printf("can not wait for selector finished %v", err)
 	}
 
-	var websitePath = path.Path
-	if strings.LastIndex(websitePath, "/") != len(websitePath)-1 {
-		websitePath = websitePath + "/"
-	}
-
-	targetPath := websitePath + "followers/"
-	selector := fmt.Sprintf(`a[href="%s"]`, targetPath)
-
-	aEle, err := page.QuerySelector(selector)
-	if err != nil || aEle == nil {
-		log.Printf("======> can not find (%s) \n", targetPath)
-		return -1
-	}
-
-	content, err := aEle.TextContent()
+	elements, err := page.QuerySelectorAll(`a:has-text("followers"), button:has-text("followers")`)
 	if err != nil {
-		log.Fatalf("failed to read content")
+		log.Fatalf("could not query selector: %v", err)
 	}
-	lines := strings.Split(content, " ")
 
-	countStr := lines[0]
-	count, err := parseFollowerCount(countStr)
-	if err != nil {
-		log.Printf("---- falied to convert %s to int(%v)", countStr, err)
-		return -1
+	for _, element := range elements {
+		textContent, err := element.TextContent()
+		if err != nil {
+			log.Printf("could not get text content: %v", err)
+		}
+
+		parts := strings.Split(textContent, " ")
+
+		countStr := parts[0]
+
+		count, err := parseFollowerCount(countStr)
+		if err != nil {
+			log.Printf("---- falied to convert %s to int(%v)", countStr, err)
+			continue
+		}
+		return count
 	}
-	return count
+	return -1
+
 }
 
 func getStoriesLink(pageRef *playwright.Page, webSiteUrl string) string {
@@ -214,6 +211,10 @@ func getStoriesLink(pageRef *playwright.Page, webSiteUrl string) string {
 	if _, err := page.Goto(storiesLink); err != nil {
 		log.Printf("Can not go to stories page, %v", err)
 		return ""
+	}
+
+	if _, err := page.WaitForSelector("body"); err != nil {
+		log.Printf("wait for body show failed: %v", err)
 	}
 
 	newUrl := page.URL()
