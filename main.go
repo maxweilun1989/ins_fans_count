@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -243,35 +244,10 @@ func getStoriesLink(pageRef *playwright.Page, webSiteUrl string) string {
 			}
 
 			for _, link := range links {
-				linkUrl, err := url.Parse(link)
-				if err != nil {
-					result = append(result, link)
-					continue
+				parsedLink := parseLink(link)
+				if !slices.Contains(result, parsedLink) {
+					result = append(result, parsedLink)
 				}
-				linkQuery, err := url.ParseQuery(linkUrl.RawQuery)
-				if err != nil || !linkQuery.Has("u") {
-					result = append(result, link)
-					continue
-				}
-				uStr := linkQuery.Get("u")
-				decodedUrl, err := strconv.Unquote(`"` + uStr + `"`)
-				if err != nil {
-					result = append(result, uStr)
-					continue
-				}
-
-				unescapeQuery, err := url.QueryUnescape(decodedUrl)
-				if err != nil {
-					result = append(result, decodedUrl)
-					continue
-				}
-				final, err := url.PathUnescape(unescapeQuery)
-				if err != nil {
-					result = append(result, unescapeQuery)
-					continue
-				}
-				result = append(result, final)
-
 			}
 		}
 	}
@@ -280,6 +256,32 @@ func getStoriesLink(pageRef *playwright.Page, webSiteUrl string) string {
 		return ""
 	}
 	return strings.Join(result, ",")
+}
+
+func parseLink(link string) string {
+	linkUrl, err := url.Parse(link)
+	if err != nil {
+		return link
+	}
+	linkQuery, err := url.ParseQuery(linkUrl.RawQuery)
+	if err != nil || !linkQuery.Has("u") {
+		return link
+	}
+	uStr := linkQuery.Get("u")
+	decodedUrl, err := strconv.Unquote(`"` + uStr + `"`)
+	if err != nil {
+		return uStr
+	}
+	unescapeQuery, err := url.QueryUnescape(decodedUrl)
+	if err != nil {
+		return decodedUrl
+	}
+	final, err := url.PathUnescape(unescapeQuery)
+
+	if err != nil {
+		return unescapeQuery
+	}
+	return final
 }
 
 //</editor-fold>
