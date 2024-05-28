@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/url"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -18,6 +19,8 @@ import (
 )
 
 // update user set fans_count = -1 where story_link = "" or story_link is null;
+// view-source:https://www.instagram.com/stories/cl3milson/
+//
 
 type User struct {
 	url       string
@@ -112,7 +115,7 @@ func updateUserInfo(users []*User, account Account, config *Config, pw *playwrig
 	for _, user := range users {
 		user.fansCount = getFansCount(context.page, user.url)
 		user.storyLink = getStoriesLink(context.page, user.url)
-		log.Printf("fans_count: %s, story_link: %s for %s", user.fansCount, user.storyLink, user.url)
+		log.Printf("fans_count: %d, story_link: %s for %s", user.fansCount, user.storyLink, user.url)
 		updateSingleDataToDb(user, db, config.Table)
 		time.Sleep(time.Duration(config.DelayConfig.DelayForNext) * time.Millisecond)
 	}
@@ -234,21 +237,42 @@ func getStoriesLink(pageRef *playwright.Page, webSiteUrl string) string {
 
 	for _, line := range lines {
 		if strings.Contains(line, "\"story_link\"") {
-			link := parseStoryLink(line)
-			if len(link) == 0 {
+			links := parseStoryLinks(line)
+			if len(links) == 0 {
 				continue
 			}
-			linkUrl, err := url.Parse(link)
-			if err != nil {
-				result = append(result, link)
-				continue
+
+			for _, link := range links {
+				linkUrl, err := url.Parse(link)
+				if err != nil {
+					result = append(result, link)
+					continue
+				}
+				linkQuery, err := url.ParseQuery(linkUrl.RawQuery)
+				if err != nil || !linkQuery.Has("u") {
+					result = append(result, link)
+					continue
+				}
+				uStr := linkQuery.Get("u")
+				decodedUrl, err := strconv.Unquote(`"` + uStr + `"`)
+				if err != nil {
+					result = append(result, uStr)
+					continue
+				}
+
+				unescapeQuery, err := url.QueryUnescape(decodedUrl)
+				if err != nil {
+					result = append(result, decodedUrl)
+					continue
+				}
+				final, err := url.PathUnescape(unescapeQuery)
+				if err != nil {
+					result = append(result, unescapeQuery)
+					continue
+				}
+				result = append(result, final)
+
 			}
-			linkQuery, err := url.ParseQuery(linkUrl.RawQuery)
-			if err != nil || !linkQuery.Has("u") {
-				result = append(result, link)
-				continue
-			}
-			result = append(result, linkQuery.Get("u"))
 		}
 	}
 
@@ -312,7 +336,7 @@ func updateSingleDataToDb(user *User, db *sql.DB, table string) {
 		if err != nil {
 			log.Printf("Can not update db, %v ", err)
 		}
-		log.Printf("update user(%s) count %s, link: %s success", user.url, user.fansCount, user.storyLink)
+		log.Printf("update user(%s) count %d, link: %s success", user.url, user.fansCount, user.storyLink)
 	}
 }
 
@@ -379,39 +403,17 @@ func parseFansCount(line string) int {
 	return -1
 }
 
-func parseStoryLink(link string) string {
-	key := "\"story_link\""
-	idx := strings.Index(link, key)
-	if idx == -1 {
-		return ""
-	}
-	idx = idx + len(key)
-	for idx < len(link) && link[idx] != '{' {
-		idx++
-	}
-	idx++
+func parseStoryLinks(link string) []string {
+	re := regexp.MustCompile(`"story_link":{"url":"(.*?)"}`)
 
-	start := idx - 1
-	if start >= len(link) {
-		return ""
+	matches := re.FindAllStringSubmatch(link, -1)
+	result := make([]string, len(matches))
+	for idx, match := range matches {
+		if len(match) >= 2 {
+			result[idx] = match[1]
+		}
 	}
-
-	for idx < len(link) && link[idx] != '}' {
-		idx++
-	}
-	end := idx + 1
-
-	if end >= len(link) {
-		return ""
-	}
-	jsonStr := link[start:end]
-	var result map[string]interface{}
-
-	err := json.Unmarshal([]byte(jsonStr), &result)
-	if err != nil {
-		return ""
-	}
-	return result["url"].(string)
+	return result
 }
 
 func findStoriesLink(site string) string {
@@ -497,25 +499,49 @@ func testParseStoryLink() {
 		log.Fatalf("Can not open file, %v", err)
 	}
 	scanner := bufio.NewScanner(file)
+	buf := make([]byte, 0, 1024*1024)
+	scanner.Buffer(buf, 8*1024*1024)
 	result := make([]string, 0)
 	for scanner.Scan() {
 		line := scanner.Text()
 
-		link := parseStoryLink(line)
-		if len(link) == 0 {
+		links := parseStoryLinks(line)
+
+		if len(links) == 0 {
 			continue
 		}
-		linkUrl, err := url.Parse(link)
-		if err != nil {
-			result = append(result, link)
-			continue
+
+		for _, link := range links {
+			linkUrl, err := url.Parse(link)
+			if err != nil {
+				result = append(result, link)
+				continue
+			}
+			linkQuery, err := url.ParseQuery(linkUrl.RawQuery)
+			if err != nil || !linkQuery.Has("u") {
+				result = append(result, link)
+				continue
+			}
+			uStr := linkQuery.Get("u")
+			decodedUrl, err := strconv.Unquote(`"` + uStr + `"`)
+			if err != nil {
+				result = append(result, uStr)
+				continue
+			}
+
+			unescapeQuery, err := url.QueryUnescape(decodedUrl)
+			if err != nil {
+				result = append(result, decodedUrl)
+				continue
+			}
+			final, err := url.PathUnescape(unescapeQuery)
+			if err != nil {
+				result = append(result, unescapeQuery)
+				continue
+			}
+			result = append(result, final)
+
 		}
-		linkQuery, err := url.ParseQuery(linkUrl.RawQuery)
-		if err != nil || !linkQuery.Has("u") {
-			result = append(result, link)
-			continue
-		}
-		result = append(result, linkQuery.Get("u"))
 	}
 	log.Println(strings.Join(result, ","))
 }
