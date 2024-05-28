@@ -115,7 +115,7 @@ func updateUserInfo(users []*User, account Account, config *Config, pw *playwrig
 
 	for _, user := range users {
 		user.fansCount = getFansCount(context.page, user.url)
-		user.storyLink = getStoriesLink(context.page, user.url)
+		user.storyLink = getStoriesLink(context.page, user.url, &account, config)
 		log.Printf("fans_count: %d, story_link: %s for %s", user.fansCount, user.storyLink, user.url)
 		updateSingleDataToDb(user, db, config.Table)
 		time.Sleep(time.Duration(config.DelayConfig.DelayForNext) * time.Millisecond)
@@ -147,6 +147,12 @@ func logInToInstagram(userName string, password string, pw *playwright.Playwrigh
 		log.Fatalf("Can not go to login page, %v", err)
 	}
 
+	login(userName, password, page, config)
+
+	return &PlayWrightContext{pw: pw, browser: &browser, page: &page}, nil
+}
+
+func login(userName string, password string, page playwright.Page, config *Config) {
 	inputName := "input[name='username']"
 	if err := page.Fill(inputName, userName); err != nil {
 		log.Fatalf("Can not fill username, %v", err)
@@ -165,8 +171,6 @@ func logInToInstagram(userName string, password string, pw *playwright.Playwrigh
 	}
 
 	time.Sleep(time.Duration(config.DelayConfig.DelayAfterLogin) * time.Millisecond)
-
-	return &PlayWrightContext{pw: pw, browser: &browser, page: &page}, nil
 }
 
 func getFansCount(pageRef *playwright.Page, websiteUrl string) int {
@@ -206,27 +210,42 @@ func getFansCount(pageRef *playwright.Page, websiteUrl string) int {
 
 }
 
-func getStoriesLink(pageRef *playwright.Page, webSiteUrl string) string {
+func getStoriesLink(pageRef *playwright.Page, webSiteUrl string, account *Account, config *Config) string {
 	page := *pageRef
 	storiesLink := findStoriesLink(webSiteUrl)
 	if storiesLink == "" {
 		return ""
 	}
-	if _, err := page.Goto(storiesLink); err != nil {
-		log.Printf("Can not go to stories page, %v", err)
+
+	var hasError = true
+	for i := 0; i < 2; i++ {
+		if _, err := page.Goto(storiesLink); err != nil {
+			log.Printf("Can not go to stories page, %v", err)
+			time.Sleep(2 * time.Second)
+			continue
+		}
+
+		if _, err := page.WaitForSelector("body"); err != nil {
+			log.Printf("wait for body show failed: %v", err)
+		}
+
+		newUrl := page.URL()
+
+		if strings.Contains(newUrl, "https://www.instagram.com/accounts/login/") {
+			login(account.Username, account.Password, page, config)
+			time.Sleep(2 * time.Second)
+			continue
+		}
+
+		if strings.Contains(newUrl, storiesLink) {
+			hasError = false
+			break
+		}
+	}
+
+	if hasError {
 		return ""
 	}
-
-	if _, err := page.WaitForSelector("body"); err != nil {
-		log.Printf("wait for body show failed: %v", err)
-	}
-
-	newUrl := page.URL()
-	if !strings.Contains(newUrl, storiesLink) {
-		log.Printf("Can not go to stories page, storiesLink: %s, newUrl: %s", storiesLink, newUrl)
-		return ""
-	}
-
 	content, err := page.Content()
 	if err != nil {
 		log.Printf("Can not read content, %v", err)
