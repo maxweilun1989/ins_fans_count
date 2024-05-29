@@ -24,6 +24,7 @@ import (
 //
 
 type User struct {
+	id        int
 	url       string
 	storyLink string
 	fansCount int
@@ -73,20 +74,33 @@ func main() {
 	}
 	defer db.Close()
 
-	users, err := findUserEmptyData(db, config.Table)
-	if err != nil {
-		log.Fatalf("Can not find user empty data, %v", err)
-	}
-	log.Printf("has %d to handle", len(users))
-	if len(users) == 0 {
-		return
-	}
-
 	pw, err := playwright.Run()
 	if err != nil {
 		log.Fatalf("Can not run playwright, %v", err)
 	}
 	defer pw.Stop()
+
+	low := 0
+	limit := 500
+
+	for {
+		users, err := findUserEmptyData(db, config.Table, limit, low)
+		if err != nil {
+			log.Fatalf("Can not find user empty data, %v", err)
+		}
+		log.Printf("has %d to handle, low -> %d ", len(users), low)
+		if len(users) == 0 {
+			break
+		}
+		low = users[len(users)-1].id
+		updateData(users, config, pw, db)
+	}
+}
+
+func updateData(users []*User, config *Config, pw *playwright.Playwright, db *sql.DB) {
+	if len(users) == 0 {
+		return
+	}
 
 	perSize := len(users) / len(config.Accounts)
 	var wg sync.WaitGroup
@@ -323,8 +337,8 @@ func connectToDB(dsn string) (*sql.DB, error) {
 	return db, err
 }
 
-func findUserEmptyData(db *sql.DB, table string) ([]*User, error) {
-	queryStr := fmt.Sprintf("SELECT  url FROM %s WHERE fans_count <=0 or fans_count is null", table)
+func findUserEmptyData(db *sql.DB, table string, limit int, low int) ([]*User, error) {
+	queryStr := fmt.Sprintf("SELECT id, url FROM %s WHERE fans_count = -1 and id > %d order by id ASC limit %d", table, low, limit)
 	rows, err := db.Query(queryStr)
 	if err != nil {
 		log.Fatalf("Can not select db, %v ", err)
@@ -334,12 +348,18 @@ func findUserEmptyData(db *sql.DB, table string) ([]*User, error) {
 	var users []*User
 	for rows.Next() {
 		var url string
+		var id int
 
-		err := rows.Scan(&url)
+		err := rows.Scan(&id, &url)
 		if err != nil {
 			log.Fatalf("scan error, %v", err)
 		}
-		users = append(users, &User{url: url})
+		updateStr := fmt.Sprintf("UPDATE %s SET fans_count = -2 WHERE url = ?", table)
+		_, updateErr := db.Exec(updateStr, url)
+		if updateErr != nil {
+			log.Printf("Can not update db for %s, %v ", url, updateErr)
+		}
+		users = append(users, &User{id: id, url: url})
 	}
 	return users, nil
 }
@@ -465,6 +485,7 @@ func parseConfig() (*Config, error) {
 func parseFollowerCount(s string) (int, error) {
 	// 去掉字符串中的空格
 	s = strings.TrimSpace(s)
+	s = strings.ReplaceAll(s, ",", "")
 
 	// 检查字符串的最后一个字符以确定单位
 	length := len(s)
