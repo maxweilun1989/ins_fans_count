@@ -88,11 +88,19 @@ func main() {
 		if err != nil {
 			log.Fatalf("Can not find user empty data, %v", err)
 		}
-		log.Printf("has %d to handle, low -> %d ", len(users), low)
 		if len(users) == 0 {
 			break
 		}
-		low = users[len(users)-1].id
+
+		begin := users[0].id
+		end := users[len(users)-1].id
+		log.Printf("has %d to handle, from %d to %d", len(users), begin, end)
+		updateStr := fmt.Sprintf("UPDATE %s SET fans_count = -2 WHERE id >=  ? and id <= ? ", config.Table)
+		_, updateErr := db.Exec(updateStr, begin, end)
+		if updateErr != nil {
+			log.Printf("Can not update db for %s ", updateErr)
+		}
+		low = end
 		updateData(users, config, pw, db)
 	}
 }
@@ -354,11 +362,6 @@ func findUserEmptyData(db *sql.DB, table string, limit int, low int) ([]*User, e
 		if err != nil {
 			log.Fatalf("scan error, %v", err)
 		}
-		updateStr := fmt.Sprintf("UPDATE %s SET fans_count = -2 WHERE url = ?", table)
-		_, updateErr := db.Exec(updateStr, url)
-		if updateErr != nil {
-			log.Printf("Can not update db for %s, %v ", url, updateErr)
-		}
 		users = append(users, &User{id: id, url: url})
 	}
 	return users, nil
@@ -371,14 +374,12 @@ func updateDataToDb(users []*User, db *sql.DB, table string) {
 }
 
 func updateSingleDataToDb(user *User, db *sql.DB, table string) {
-	if user.fansCount != -1 || user.storyLink != "" {
-		execStr := fmt.Sprintf("UPDATE %s SET story_link = ?, fans_count = ? WHERE url = ?", table)
-		_, err := db.Exec(execStr, user.storyLink, user.fansCount, user.url)
-		if err != nil {
-			log.Printf("Can not update db, %v ", err)
-		}
-		log.Printf("update user(%s) count %d, link: %s success", user.url, user.fansCount, user.storyLink)
+	execStr := fmt.Sprintf("UPDATE %s SET story_link = ?, fans_count = ? WHERE url = ?", table)
+	_, err := db.Exec(execStr, user.storyLink, user.fansCount, user.url)
+	if err != nil {
+		log.Printf("Can not update db, %v ", err)
 	}
+	log.Printf("update user(%s) count %d, link: %s success", user.url, user.fansCount, user.storyLink)
 }
 
 func insertFilesToDb(path string, dsn string) {
