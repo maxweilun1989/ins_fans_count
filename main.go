@@ -1,7 +1,6 @@
 package main
 
 import (
-	"database/sql"
 	"fmt"
 	"github.com/charmbracelet/log"
 	"github.com/playwright-community/playwright-go"
@@ -40,6 +39,8 @@ func main() {
 	}
 	defer pw.Stop()
 
+	app_context := instagram_fans.AppContext{Pw: pw, Db: db, Config: config}
+
 	low := 0
 	limit := 500
 
@@ -61,18 +62,18 @@ func main() {
 			log.Printf("Can not update db for %s ", updateErr)
 		}
 		low = end
-		updateData(users, config, pw, db)
+		updateData(users, &app_context)
 	}
 }
 
-func updateData(users []*instagram_fans.User, config *instagram_fans.Config, pw *playwright.Playwright, db *sql.DB) {
+func updateData(users []*instagram_fans.User, appContext *instagram_fans.AppContext) {
 	if len(users) == 0 {
 		return
 	}
 
-	perSize := len(users) / len(config.Accounts)
+	perSize := len(users) / len(appContext.Config.Accounts)
 	var wg sync.WaitGroup
-	for i, account := range config.Accounts {
+	for i, account := range appContext.Config.Accounts {
 		begin := i * perSize
 		end := (i + 1) * perSize
 		if end > len(users) {
@@ -81,24 +82,40 @@ func updateData(users []*instagram_fans.User, config *instagram_fans.Config, pw 
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			UpdateUserInfo(users[begin:end], account, config, pw, db)
+			UpdateUserInfo(users[begin:end], account, appContext)
 		}()
 	}
 	wg.Wait()
 }
 
-func UpdateUserInfo(users []*instagram_fans.User, account instagram_fans.Account, config *instagram_fans.Config, pw *playwright.Playwright, db *sql.DB) {
-	context, err := instagram_fans.LogInToInstagram(account.Username, account.Password, pw, config)
+func UpdateUserInfo(users []*instagram_fans.User, account instagram_fans.Account, appContext *instagram_fans.AppContext) error {
+	browser, err := instagram_fans.NewBrowser(appContext.Pw)
 	if err != nil {
-		log.Fatalf("Can not Login to instagram, %v", err)
+		log.Fatalf("Can not create browser, %v", err)
+		return err
 	}
-	defer (*context.Browser).Close()
+	defer (*browser).Close()
+
+	page, err := instagram_fans.NewPage(browser)
+	if err != nil {
+		log.Fatalf("Can not create page, %v", err)
+		return err
+	}
+	defer (*page).Close()
+
+	if err := instagram_fans.LogInToInstagram(&account, page); err != nil {
+		log.Fatalf("can not login to instagram, %v", err)
+		return err
+	}
+
+	time.Sleep(time.Duration(appContext.Config.DelayConfig.DelayAfterLogin) * time.Millisecond)
 
 	for _, user := range users {
-		user.FansCount = instagram_fans.GetFansCount(context.Page, user.Url)
-		user.StoryLink = instagram_fans.GetStoriesLink(context.Page, user.Url, &account, config)
+		user.FansCount = instagram_fans.GetFansCount(page, user.Url)
+		user.StoryLink = instagram_fans.GetStoriesLink(page, user.Url, &account)
 		log.Printf("fans_count: %d, story_link: %s for %s", user.FansCount, user.StoryLink, user.Url)
-		instagram_fans.UpdateSingleDataToDb(user, db, config.Table)
-		time.Sleep(time.Duration(config.DelayConfig.DelayForNext) * time.Millisecond)
+		instagram_fans.UpdateSingleDataToDb(user, appContext.Db, appContext.Config.Table)
+		time.Sleep(time.Duration(appContext.Config.DelayConfig.DelayForNext) * time.Millisecond)
 	}
+	return nil
 }

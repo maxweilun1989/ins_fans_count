@@ -11,20 +11,24 @@ import (
 	"time"
 )
 
-func LogInToInstagram(userName string, password string, pw *playwright.Playwright, config *Config) (*PlayWrightContext, error) {
-	headless := !config.ShowBrowser
+func NewBrowser(pw *playwright.Playwright) (*playwright.Browser, error) {
 	browser, err := pw.Chromium.Launch(playwright.BrowserTypeLaunchOptions{
-		Headless: playwright.Bool(headless),
+		Headless: playwright.Bool(false),
 	})
 	if err != nil {
 		log.Fatalf("Can not launch Browser, %v", err)
 	}
+	return &browser, err
+}
+
+func NewPage(browser *playwright.Browser) (*playwright.Page, error) {
 	contextOptions := playwright.BrowserNewContextOptions{
 		Locale: playwright.String("en-US"), // 设置语言为简体中文
 	}
-	context, err := browser.NewContext(contextOptions)
+	context, err := (*browser).NewContext(contextOptions)
 	if err != nil {
 		log.Fatalf("failed to set local")
+		return nil, err
 	}
 
 	page, err := context.NewPage()
@@ -32,34 +36,36 @@ func LogInToInstagram(userName string, password string, pw *playwright.Playwrigh
 		log.Fatalf("Can not create Page, %v", err)
 
 	}
-	if _, err := page.Goto("https://www.instagram.com/accounts/login/"); err != nil {
-		log.Fatalf("Can not go to Login Page, %v", err)
-	}
-
-	Login(userName, password, page, config)
-
-	return &PlayWrightContext{Pw: pw, Browser: &browser, Page: &page}, nil
+	return &page, err
 }
 
-func Login(userName string, password string, page playwright.Page, config *Config) {
+func LogInToInstagram(account *Account, page *playwright.Page) error {
+	if _, err := (*page).Goto("https://www.instagram.com/accounts/login/"); err != nil {
+		log.Fatalf("Can not go to Login Page, %v", err)
+		return err
+	}
+
+	Login(account, page)
+	return nil
+}
+
+func Login(account *Account, page *playwright.Page) {
 	inputName := "input[name='username']"
-	if err := page.Fill(inputName, userName); err != nil {
+	if err := (*page).Fill(inputName, account.Username); err != nil {
 		log.Fatalf("Can not fill username, %v", err)
 	}
 	time.Sleep(1 * time.Second)
 
 	inputPass := "input[name='password']"
-	if err := page.Fill(inputPass, password); err != nil {
+	if err := (*page).Fill(inputPass, account.Password); err != nil {
 		log.Fatalf("Can not fill password, %v", err)
 	}
 	time.Sleep(1 * time.Second)
 
 	submitBtn := "button[type='submit']"
-	if err := page.Click(submitBtn); err != nil {
+	if err := (*page).Click(submitBtn); err != nil {
 		log.Fatalf("Can not fill password, %v", err)
 	}
-
-	time.Sleep(time.Duration(config.DelayConfig.DelayAfterLogin) * time.Millisecond)
 }
 
 func GetFansCount(pageRef *playwright.Page, websiteUrl string) int {
@@ -98,7 +104,7 @@ func GetFansCount(pageRef *playwright.Page, websiteUrl string) int {
 	return -1
 }
 
-func GetStoriesLink(pageRef *playwright.Page, webSiteUrl string, account *Account, config *Config) string {
+func GetStoriesLink(pageRef *playwright.Page, webSiteUrl string, account *Account) string {
 	page := *pageRef
 	storiesLink := findStoriesLink(webSiteUrl)
 	if storiesLink == "" {
@@ -120,7 +126,7 @@ func GetStoriesLink(pageRef *playwright.Page, webSiteUrl string, account *Accoun
 		newUrl := page.URL()
 
 		if strings.Contains(newUrl, "https://www.instagram.com/accounts/login/") {
-			Login(account.Username, account.Password, page, config)
+			Login(account, pageRef)
 			time.Sleep(2 * time.Second)
 			continue
 		}
