@@ -47,9 +47,39 @@ func FindUserEmptyData(db *sql.DB, table string, limit int, low int) ([]*User, e
 	return users, nil
 }
 
-func UpdateSingleDataToDb(user *User, db *sql.DB, table string) {
-	execStr := fmt.Sprintf("UPDATE %s SET story_link = ?, fans_count = ? WHERE url = ?", table)
-	_, err := db.Exec(execStr, user.StoryLink, user.FansCount, user.Url)
+func UpdateSingleDataToDb(user *User, appContext *AppContext) {
+	if !appContext.Config.ParseFansCount && !appContext.Config.ParseStoryLink {
+		log.Errorf("No parseFansCount and parseStoryLink found in config")
+		return
+	}
+	db := appContext.Db
+	table := appContext.Config.Table
+
+	var err error
+
+	if appContext.Config.ParseFansCount && appContext.Config.ParseStoryLink {
+		if user.FansCount == -2 && user.StoryLink == "" {
+			log.Errorf("No fans count and story link found in user(%s)", user.Url)
+			return
+		}
+		execStr := fmt.Sprintf("UPDATE %s SET story_link = ?, fans_count = ? WHERE url = ?", table)
+		_, err = db.Exec(execStr, user.StoryLink, user.FansCount, user.Url)
+	} else if appContext.Config.ParseFansCount && !appContext.Config.ParseStoryLink {
+		if user.FansCount == -2 {
+			log.Errorf("No fans count found in user(%s)", user.Url)
+			return
+		}
+		execStr := fmt.Sprintf("UPDATE %s SET fans_count = ? WHERE url = ?", table)
+		_, err = db.Exec(execStr, user.FansCount, user.Url)
+	} else if !appContext.Config.ParseFansCount && appContext.Config.ParseStoryLink {
+		if user.StoryLink == "" {
+			log.Errorf("No story link found in user(%s)", user.Url)
+			return
+		}
+		execStr := fmt.Sprintf("UPDATE %s SET story_link = ? WHERE url = ?", table)
+		_, err = db.Exec(execStr, user.StoryLink, user.Url)
+	}
+
 	if err != nil {
 		log.Printf("Can not update db, %v ", err)
 	}

@@ -14,13 +14,10 @@ import (
 func main() {
 	log.Printf("start")
 
-	config, err := instagram_fans.ParseConfig("config.json")
-	if err != nil {
-		log.Fatalf("Can not parse config, %v", err)
-	}
-	if len(config.Accounts) == 0 {
-		log.Fatalf("No account found")
-
+	config := instagram_fans.ParseConfig("config.json")
+	if config == nil {
+		log.Fatalf("Can not parse config!!!")
+		return
 	}
 
 	db, err := instagram_fans.ConnectToDB(config.Dsn)
@@ -110,10 +107,15 @@ func UpdateUserInfo(users []*instagram_fans.User,
 	time.Sleep(time.Duration(appContext.Config.DelayConfig.DelayAfterLogin) * time.Millisecond)
 
 	for _, user := range users {
-		user.FansCount = instagram_fans.GetFansCount(page, user.Url)
-		user.StoryLink = instagram_fans.GetStoriesLink(page, user.Url, &account)
+		user.FansCount = -2
+		if appContext.Config.ParseFansCount {
+			user.FansCount = instagram_fans.GetFansCount(page, user.Url)
+		}
+		if appContext.Config.ParseStoryLink {
+			user.StoryLink = instagram_fans.GetStoriesLink(page, user.Url, &account)
+		}
 		log.Printf("fans_count: %d, story_link: %s for %s", user.FansCount, user.StoryLink, user.Url)
-		instagram_fans.UpdateSingleDataToDb(user, appContext.Db, appContext.Config.Table)
+		instagram_fans.UpdateSingleDataToDb(user, appContext)
 		time.Sleep(time.Duration(appContext.Config.DelayConfig.DelayForNext) * time.Millisecond)
 	}
 	return nil

@@ -12,5 +12,10 @@
   "count" : 5,
   "dsn": "root:19890919@tcp(192.168.31.96:3306)/instagram",
   "table": "user",
+  "userDSN": "story_link:pR7H90zPbW71Zz1@tcp(18.231.107.228:3306)/story_link",
+  "userTable": "user",
+  "parseFansCount": true,
+  "parseStoryLink": true,
+
   "showBrowser": true
 }
