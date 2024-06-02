@@ -20,6 +20,7 @@ type Config struct {
 	DelayConfig DelayConfig `json:"delay_config"`
 	Dsn         string      `json:"dsn"`
 	Table       string      `json:"table"`
+	Count       int         `json:"count"`
 	ShowBrowser bool        `json:"showBrowser"`
 }
 

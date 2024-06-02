@@ -9,6 +9,7 @@
     "delay_for_next": 2000,
     "delay_after_login": 10000
   },
+  "count" : 5,
   "dsn": "root:19890919@tcp(192.168.31.96:3306)/instagram",
   "table": "user",
   "showBrowser": true

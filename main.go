@@ -11,10 +11,6 @@ import (
 	_ "github.com/go-sql-driver/mysql"
 )
 
-// update user set fans_count = -1 where story_link = "" or story_link is null;
-// view-source:https://www.instagram.com/stories/cl3milson/
-//
-
 func main() {
 	log.Printf("start")
 
@@ -39,13 +35,11 @@ func main() {
 	}
 	defer pw.Stop()
 
-	app_context := instagram_fans.AppContext{Pw: pw, Db: db, Config: config}
+	appContext := instagram_fans.AppContext{Pw: pw, Db: db, Config: config}
 
 	low := 0
-	limit := 500
-
 	for {
-		users, err := instagram_fans.FindUserEmptyData(db, config.Table, limit, low)
+		users, err := instagram_fans.FindUserEmptyData(db, config.Table, config.Count, low)
 		if err != nil {
 			log.Fatalf("Can not find user empty data, %v", err)
 		}
@@ -62,7 +56,7 @@ func main() {
 			log.Printf("Can not update db for %s ", updateErr)
 		}
 		low = end
-		updateData(users, &app_context)
+		updateData(users, &appContext)
 	}
 }
 
@@ -79,33 +73,38 @@ func updateData(users []*instagram_fans.User, appContext *instagram_fans.AppCont
 		if end > len(users) {
 			end = len(users)
 		}
+
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			UpdateUserInfo(users[begin:end], account, appContext)
+			err := UpdateUserInfo(users[begin:end], account, appContext)
+			if err != nil {
+				log.Errorf("Update user info failed %v\n", err)
+				return
+			}
 		}()
 	}
 	wg.Wait()
 }
 
-func UpdateUserInfo(users []*instagram_fans.User, account instagram_fans.Account, appContext *instagram_fans.AppContext) error {
+func UpdateUserInfo(users []*instagram_fans.User,
+	account instagram_fans.Account,
+	appContext *instagram_fans.AppContext) error {
+
 	browser, err := instagram_fans.NewBrowser(appContext.Pw)
 	if err != nil {
 		log.Fatalf("Can not create browser, %v", err)
-		return err
 	}
 	defer (*browser).Close()
 
 	page, err := instagram_fans.NewPage(browser)
 	if err != nil {
 		log.Fatalf("Can not create page, %v", err)
-		return err
 	}
 	defer (*page).Close()
 
 	if err := instagram_fans.LogInToInstagram(&account, page); err != nil {
 		log.Fatalf("can not login to instagram, %v", err)
-		return err
 	}
 
 	time.Sleep(time.Duration(appContext.Config.DelayConfig.DelayAfterLogin) * time.Millisecond)
