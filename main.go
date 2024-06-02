@@ -3,10 +3,10 @@ package main
 import (
 	"bufio"
 	"database/sql"
-	"encoding/json"
 	"fmt"
+	"github.com/charmbracelet/log"
 	"github.com/playwright-community/playwright-go"
-	"log"
+	"instgram_fans/instagram_fans"
 	"net/url"
 	"os"
 	"regexp"
@@ -23,41 +23,16 @@ import (
 // view-source:https://www.instagram.com/stories/cl3milson/
 //
 
-type User struct {
-	id        int
-	url       string
-	storyLink string
-	fansCount int
-}
-
 type PlayWrightContext struct {
 	pw      *playwright.Playwright
 	browser *playwright.Browser
 	page    *playwright.Page
 }
 
-type Account struct {
-	Username string `json:"username"`
-	Password string `json:"password"`
-}
-
-type DelayConfig struct {
-	DelayForNext    int `json:"delay_for_next"`
-	DelayAfterLogin int `json:"delay_after_login"`
-}
-
-type Config struct {
-	Accounts    []Account   `json:"accounts"`
-	DelayConfig DelayConfig `json:"delay_config"`
-	Dsn         string      `json:"dsn"`
-	Table       string      `json:"table"`
-	ShowBrowser bool        `json:"showBrowser"`
-}
-
 func main() {
 	log.Printf("start")
 
-	config, err := parseConfig()
+	config, err := instagram_fans.ParseConfig("config.json")
 	if err != nil {
 		log.Fatalf("Can not parse config, %v", err)
 	}
@@ -68,7 +43,7 @@ func main() {
 
 	}
 
-	db, err := connectToDB(config.Dsn)
+	db, err := instagram_fans.ConnectToDB(config.Dsn)
 	if err != nil {
 		log.Fatalf("failed to conenct to database %s, error: %v", config.Dsn, err)
 	}
@@ -92,8 +67,8 @@ func main() {
 			break
 		}
 
-		begin := users[0].id
-		end := users[len(users)-1].id
+		begin := users[0].Id
+		end := users[len(users)-1].Id
 		log.Printf("has %d to handle, from %d to %d", len(users), begin, end)
 		updateStr := fmt.Sprintf("UPDATE %s SET fans_count = -2 WHERE id >=  ? and id <= ? ", config.Table)
 		_, updateErr := db.Exec(updateStr, begin, end)
@@ -105,7 +80,7 @@ func main() {
 	}
 }
 
-func updateData(users []*User, config *Config, pw *playwright.Playwright, db *sql.DB) {
+func updateData(users []*instagram_fans.User, config *instagram_fans.Config, pw *playwright.Playwright, db *sql.DB) {
 	if len(users) == 0 {
 		return
 	}
@@ -128,7 +103,7 @@ func updateData(users []*User, config *Config, pw *playwright.Playwright, db *sq
 }
 
 // <editor-fold desc="playwright function">
-func updateUserInfo(users []*User, account Account, config *Config, pw *playwright.Playwright, db *sql.DB) {
+func updateUserInfo(users []*instagram_fans.User, account instagram_fans.Account, config *instagram_fans.Config, pw *playwright.Playwright, db *sql.DB) {
 	context, err := logInToInstagram(account.Username, account.Password, pw, config)
 	if err != nil {
 		log.Fatalf("Can not login to instagram, %v", err)
@@ -136,15 +111,15 @@ func updateUserInfo(users []*User, account Account, config *Config, pw *playwrig
 	defer (*context.browser).Close()
 
 	for _, user := range users {
-		user.fansCount = getFansCount(context.page, user.url)
-		user.storyLink = getStoriesLink(context.page, user.url, &account, config)
-		log.Printf("fans_count: %d, story_link: %s for %s", user.fansCount, user.storyLink, user.url)
+		user.FansCount = getFansCount(context.page, user.Url)
+		user.StoryLink = getStoriesLink(context.page, user.Url, &account, config)
+		log.Printf("fans_count: %d, story_link: %s for %s", user.FansCount, user.StoryLink, user.Url)
 		updateSingleDataToDb(user, db, config.Table)
 		time.Sleep(time.Duration(config.DelayConfig.DelayForNext) * time.Millisecond)
 	}
 }
 
-func logInToInstagram(userName string, password string, pw *playwright.Playwright, config *Config) (*PlayWrightContext, error) {
+func logInToInstagram(userName string, password string, pw *playwright.Playwright, config *instagram_fans.Config) (*PlayWrightContext, error) {
 	headless := !config.ShowBrowser
 	browser, err := pw.Chromium.Launch(playwright.BrowserTypeLaunchOptions{
 		Headless: playwright.Bool(headless),
@@ -174,7 +149,7 @@ func logInToInstagram(userName string, password string, pw *playwright.Playwrigh
 	return &PlayWrightContext{pw: pw, browser: &browser, page: &page}, nil
 }
 
-func login(userName string, password string, page playwright.Page, config *Config) {
+func login(userName string, password string, page playwright.Page, config *instagram_fans.Config) {
 	inputName := "input[name='username']"
 	if err := page.Fill(inputName, userName); err != nil {
 		log.Fatalf("Can not fill username, %v", err)
@@ -201,7 +176,7 @@ func getFansCount(pageRef *playwright.Page, websiteUrl string) int {
 		log.Printf("Can not go to user page, %v", err)
 	}
 
-	_, err := page.WaitForSelector("main")
+	_, err := page.WaitForSelector("instagram_fans")
 	if err != nil {
 		log.Printf("can not wait for selector finished %v", err)
 	}
@@ -232,7 +207,7 @@ func getFansCount(pageRef *playwright.Page, websiteUrl string) int {
 
 }
 
-func getStoriesLink(pageRef *playwright.Page, webSiteUrl string, account *Account, config *Config) string {
+func getStoriesLink(pageRef *playwright.Page, webSiteUrl string, account *instagram_fans.Account, config *instagram_fans.Config) string {
 	page := *pageRef
 	storiesLink := findStoriesLink(webSiteUrl)
 	if storiesLink == "" {
@@ -328,24 +303,7 @@ func parseLink(link string) string {
 //</editor-fold>
 
 // <editor-fold desc="db functions">
-func connectToDB(dsn string) (*sql.DB, error) {
-	db, err := sql.Open("mysql", dsn)
-	if err != nil {
-		log.Fatalf("Can not open db(%s), %v", dsn, err)
-	}
-
-	db.SetConnMaxLifetime(100)
-	db.SetMaxIdleConns(10)
-	db.SetMaxOpenConns(10)
-
-	if err := db.Ping(); err != nil {
-		db.Close()
-		return nil, err
-	}
-	return db, err
-}
-
-func findUserEmptyData(db *sql.DB, table string, limit int, low int) ([]*User, error) {
+func findUserEmptyData(db *sql.DB, table string, limit int, low int) ([]*instagram_fans.User, error) {
 	queryStr := fmt.Sprintf("SELECT id, url FROM %s WHERE fans_count = -1 and id > %d order by id ASC limit %d", table, low, limit)
 	rows, err := db.Query(queryStr)
 	if err != nil {
@@ -353,7 +311,7 @@ func findUserEmptyData(db *sql.DB, table string, limit int, low int) ([]*User, e
 	}
 	defer rows.Close()
 
-	var users []*User
+	var users []*instagram_fans.User
 	for rows.Next() {
 		var url string
 		var id int
@@ -362,24 +320,24 @@ func findUserEmptyData(db *sql.DB, table string, limit int, low int) ([]*User, e
 		if err != nil {
 			log.Fatalf("scan error, %v", err)
 		}
-		users = append(users, &User{id: id, url: url})
+		users = append(users, &instagram_fans.User{Id: id, Url: url})
 	}
 	return users, nil
 }
 
-func updateDataToDb(users []*User, db *sql.DB, table string) {
+func updateDataToDb(users []*instagram_fans.User, db *sql.DB, table string) {
 	for _, user := range users {
 		updateSingleDataToDb(user, db, table)
 	}
 }
 
-func updateSingleDataToDb(user *User, db *sql.DB, table string) {
+func updateSingleDataToDb(user *instagram_fans.User, db *sql.DB, table string) {
 	execStr := fmt.Sprintf("UPDATE %s SET story_link = ?, fans_count = ? WHERE url = ?", table)
-	_, err := db.Exec(execStr, user.storyLink, user.fansCount, user.url)
+	_, err := db.Exec(execStr, user.StoryLink, user.FansCount, user.Url)
 	if err != nil {
 		log.Printf("Can not update db, %v ", err)
 	}
-	log.Printf("update user(%s) count %d, link: %s success", user.url, user.fansCount, user.storyLink)
+	log.Printf("update user(%s) count %d, link: %s success", user.Url, user.FansCount, user.StoryLink)
 }
 
 func insertFilesToDb(path string, dsn string) {
@@ -389,7 +347,7 @@ func insertFilesToDb(path string, dsn string) {
 	}
 	defer file.Close()
 
-	db, err := connectToDB(dsn)
+	db, err := instagram_fans.ConnectToDB(dsn)
 	if err != nil {
 		log.Fatalf("Can not connect to db, %v", err)
 	}
@@ -465,22 +423,6 @@ func findStoriesLink(site string) string {
 	}
 	newPath := "stories" + parsedUrl.Path
 	return parsedUrl.Scheme + "://" + parsedUrl.Host + "/" + newPath
-}
-
-func parseConfig() (*Config, error) {
-	file, err := os.Open("config.json")
-	if err != nil {
-		return nil, err
-	}
-	defer file.Close()
-
-	decoder := json.NewDecoder(file)
-	config := Config{}
-	err = decoder.Decode(&config)
-	if err != nil {
-		return nil, err
-	}
-	return &config, nil
 }
 
 func parseFollowerCount(s string) (int, error) {
@@ -586,7 +528,6 @@ func testParseStoryLink() {
 
 		}
 	}
-	log.Println(strings.Join(result, ","))
 }
 
 //</editor-fold>
