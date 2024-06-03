@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"github.com/charmbracelet/log"
 	"github.com/playwright-community/playwright-go"
 	"instgram_fans/instagram_fans"
@@ -24,13 +23,18 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to conenct to database %s, error: %v", config.Dsn, err)
 	}
-	defer db.Close()
+	defer instagram_fans.SafeCloseDB(db)
 
 	pw, err := playwright.Run()
 	if err != nil {
 		log.Fatalf("Can not run playwright, %v", err)
 	}
-	defer pw.Stop()
+	defer func(pw *playwright.Playwright) {
+		err := pw.Stop()
+		if err != nil {
+			log.Fatalf("Can not stop playwright, %v", err)
+		}
+	}(pw)
 
 	appContext := instagram_fans.AppContext{Pw: pw, Db: db, Config: config}
 
@@ -47,11 +51,7 @@ func main() {
 		begin := users[0].Id
 		end := users[len(users)-1].Id
 		log.Printf("has %d to handle, from %d to %d", len(users), begin, end)
-		updateStr := fmt.Sprintf("UPDATE %s SET fans_count = -2 WHERE id >=  ? and id <= ? ", config.Table)
-		_, updateErr := db.Exec(updateStr, begin, end)
-		if updateErr != nil {
-			log.Printf("Can not update db for %s ", updateErr)
-		}
+		db.Table(config.Table).Where("id >= ? and id <= ?", begin, end).Updates(map[string]interface{}{"fans_count": -2})
 		low = end
 		updateData(users, &appContext)
 	}
@@ -92,13 +92,23 @@ func UpdateUserInfo(users []*instagram_fans.User,
 	if err != nil {
 		log.Fatalf("Can not create browser, %v", err)
 	}
-	defer (*browser).Close()
+	defer func(browser playwright.Browser) {
+		err := browser.Close()
+		if err != nil {
+
+		}
+	}(*browser)
 
 	page, err := instagram_fans.NewPage(browser)
 	if err != nil {
 		log.Fatalf("Can not create page, %v", err)
 	}
-	defer (*page).Close()
+	defer func(page playwright.Page) {
+		err := page.Close()
+		if err != nil {
+
+		}
+	}(*page)
 
 	if err := instagram_fans.LogInToInstagram(&account, page); err != nil {
 		log.Fatalf("can not login to instagram, %v", err)

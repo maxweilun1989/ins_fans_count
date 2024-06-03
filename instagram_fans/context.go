@@ -1,12 +1,12 @@
 package instagram_fans
 
 import (
-	"database/sql"
 	"github.com/playwright-community/playwright-go"
+	"gorm.io/gorm"
 )
 
 type AppContext struct {
 	Pw     *playwright.Playwright
-	Db     *sql.DB
+	Db     *gorm.DB
 	Config *Config
 }

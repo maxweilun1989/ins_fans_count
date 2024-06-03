@@ -10,7 +10,7 @@
     "delay_after_login": 10000
   },
   "count" : 5,
-  "dsn": "root:19890919@tcp(192.168.31.96:3306)/instagram",
+  "dsn": "root:19890919@tcp(127.0.0.1:3306)/instagram",
   "table": "user",
   "userDSN": "story_link:pR7H90zPbW71Zz1@tcp(18.231.107.228:3306)/story_link",
   "userTable": "user",
