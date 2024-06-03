@@ -63,62 +63,75 @@ func LogInToInstagram(account *Account, page *playwright.Page, delay int) error 
 }
 
 func Login(account *Account, page *playwright.Page, delay int) error {
-	inputName := "input[name='username']"
-	if err := (*page).Fill(inputName, account.Username); err != nil {
-		log.Errorf("Can not fill username, %v", err)
-		return ErrUserInvalid
-	}
-	time.Sleep(1 * time.Second)
-
-	inputPass := "input[name='password']"
-	if err := (*page).Fill(inputPass, account.Password); err != nil {
-		log.Errorf("Can not fill password, %v", err)
-		return ErrUserInvalid
-	}
-	time.Sleep(1 * time.Second)
-
-	submitBtn := "button[type='submit']"
-	if err := (*page).Click(submitBtn); err != nil {
-		log.Errorf("Can not click submit btn, %v", err)
-		return ErrUserInvalid
-	}
-
-	err := (*page).WaitForLoadState(playwright.PageWaitForLoadStateOptions{
-		State: playwright.LoadStateNetworkidle,
-	})
-	if err != nil {
-		log.Errorf("Can not wait for load state, %v", err)
-		return ErrUserInvalid
-	}
-
-	time.Sleep(time.Duration(delay*1000) * time.Millisecond)
-
-	pageContent, err := (*page).Content()
-	if err != nil {
-		log.Errorf("Can not get page content, %v", err)
-		return ErrUserInvalid
-	}
-
-	targetText := "Suspicious Login Attempt"
-	if strings.Contains(pageContent, targetText) {
-		log.Errorf("[%v] Suspicious Login Attempt found! ", *account)
-		return ErrUserInvalid
-	} else if strings.Contains(pageContent, "your password was incorrect") {
-		log.Errorf("[%v] your password was incorrect", *account)
-		return ErrUserInvalid
-	}
-
-	dismissSelector := `a:has-text("Dismiss"), button:has-text("Dismiss")`
-	dismissButton, err := (*page).QuerySelector(dismissSelector)
-	if err != nil {
-		return ErrUserInvalid
-	}
-	if dismissButton != nil {
-		if err := dismissButton.Click(); err != nil {
+	for i := 0; i < 2; i++ {
+		inputName := "input[name='username']"
+		if err := (*page).Fill(inputName, account.Username); err != nil {
+			log.Errorf("Can not fill username, %v", err)
 			return ErrUserInvalid
 		}
+		time.Sleep(1 * time.Second)
+
+		inputPass := "input[name='password']"
+		if err := (*page).Fill(inputPass, account.Password); err != nil {
+			log.Errorf("Can not fill password, %v", err)
+			return ErrUserInvalid
+		}
+		time.Sleep(1 * time.Second)
+
+		submitBtn := "button[type='submit']"
+		if err := (*page).Click(submitBtn); err != nil {
+			log.Errorf("Can not click submit btn, %v", err)
+			return ErrUserInvalid
+		}
+
+		err := (*page).WaitForLoadState(playwright.PageWaitForLoadStateOptions{
+			State: playwright.LoadStateNetworkidle,
+		})
+		if err != nil {
+			log.Errorf("Can not wait for load state, %v", err)
+			return ErrUserInvalid
+		}
+
+		time.Sleep(time.Duration(delay*1000) * time.Millisecond)
+
+		pageContent, err := (*page).Content()
+		if err != nil {
+			log.Errorf("Can not get page content, %v", err)
+			return ErrUserInvalid
+		}
+
+		targetText := "Suspicious Login Attempt"
+		if strings.Contains(pageContent, targetText) {
+			log.Errorf("[%v] Suspicious Login Attempt found! ", *account)
+			return ErrUserInvalid
+		} else if strings.Contains(pageContent, "your password was incorrect") {
+			log.Errorf("[%v] your password was incorrect", *account)
+			return ErrUserInvalid
+		}
+
 		time.Sleep(time.Duration(5) * time.Second)
-		return nil
+
+		dismissSelector := `role=button >> text=Dismiss`
+		dismissButton, err := (*page).QuerySelector(dismissSelector)
+		if err != nil {
+			return ErrUserInvalid
+		}
+		if dismissButton != nil {
+			if err := dismissButton.Click(); err != nil {
+				return ErrUserInvalid
+			}
+			time.Sleep(time.Duration(5) * time.Second)
+			return nil
+		}
+
+		inputEle, err := (*page).QuerySelector(inputName)
+		if err != nil {
+			return ErrUserInvalid
+		}
+		if inputEle != nil {
+			continue
+		}
+		break
 	}
 	return nil
 }
@@ -188,7 +201,9 @@ func commonErrorHandle(page *playwright.Page) error {
 		return ErrUserInvalid
 	}
 
-	dismissSelector := `a:has-text("Dismiss"), button:has-text("Dismiss")`
+	time.Sleep(time.Duration(5) * time.Second)
+
+	dismissSelector := `role=button >> text=Dismiss`
 	dismissButton, err := (*page).QuerySelector(dismissSelector)
 	if err != nil {
 		return ErrUserInvalid

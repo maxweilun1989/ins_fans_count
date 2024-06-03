@@ -230,7 +230,7 @@ func getLoginPage(appContext *instagram_fans.AppContext, mutex *sync.Mutex) (*Pa
 		log.Printf("using account: %v", *account)
 		if err := instagram_fans.LogInToInstagram(account, page, appContext.Config.DelayConfig.DelayAfterLogin); err != nil {
 			log.Errorf("can not login to instagram, %v", err)
-			instagram_fans.MakeAccountStatus(appContext.AccountDb, appContext.Config.AccountTable, account, -1, "")
+			instagram_fans.MakeAccountStatus(appContext.AccountDb, appContext.Config.AccountTable, account, -1, appContext.MachineCode)
 			(*page).Close()
 			(*browser).Close()
 			continue
