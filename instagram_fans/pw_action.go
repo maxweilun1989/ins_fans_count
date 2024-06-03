@@ -107,6 +107,19 @@ func Login(account *Account, page *playwright.Page, delay int) error {
 		log.Errorf("[%v] your password was incorrect", *account)
 		return ErrUserInvalid
 	}
+
+	dismissSelector := `a:has-text("Dismiss"), button:has-text("Dismiss")`
+	dismissButton, err := (*page).QuerySelector(dismissSelector)
+	if err != nil {
+		return ErrUserInvalid
+	}
+	if dismissButton != nil {
+		if err := dismissButton.Click(); err != nil {
+			return ErrUserInvalid
+		}
+		time.Sleep(time.Duration(5) * time.Second)
+		return nil
+	}
 	return nil
 }
 
@@ -175,7 +188,7 @@ func commonErrorHandle(page *playwright.Page) error {
 		return ErrUserInvalid
 	}
 
-	dismissSelector := `a:has-text("followers"), button:has-text("followers")`
+	dismissSelector := `a:has-text("Dismiss"), button:has-text("Dismiss")`
 	dismissButton, err := (*page).QuerySelector(dismissSelector)
 	if err != nil {
 		return ErrUserInvalid
