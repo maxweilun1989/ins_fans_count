@@ -77,10 +77,11 @@ func updateData(users []*instagram_fans.User, appContext *instagram_fans.AppCont
 	var wg sync.WaitGroup
 	var getAccountMutex sync.Mutex
 
-	userChannel := make(chan *instagram_fans.User, len(users))
+	userChannel := make(chan *instagram_fans.User, len(users)+1)
 	for i := 0; i < len(users); i++ {
 		userChannel <- users[i]
 	}
+	userChannel <- nil
 
 	for i := 0; i < appContext.Config.AccountCount; i++ {
 		wg.Add(1)
@@ -135,16 +136,21 @@ func UpdateUserInfo(userChannel <-chan *instagram_fans.User, appContext *instagr
 	defer (*page).Close()
 
 	for user := range userChannel {
+		if user == nil {
+			instagram_fans.MakeAccountStatus(appContext.AccountDb, appContext.Config.AccountTable, account, 0)
+			log.Info("Receive nil!!")
+			break
+		}
 		user.FansCount = -2
 		if appContext.Config.ParseFansCount {
 			fansCount, err := instagram_fans.GetFansCount(page, user.Url)
-			if err != nil {
+			if err == nil {
 				user.FansCount = fansCount
 			}
 		}
 		if appContext.Config.ParseStoryLink {
 			storyLink, err := instagram_fans.GetStoriesLink(page, user.Url, account)
-			if err != nil {
+			if err == nil {
 				user.StoryLink = storyLink
 			}
 		}

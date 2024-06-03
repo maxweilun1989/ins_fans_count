@@ -108,7 +108,7 @@ func GetFansCount(pageRef *playwright.Page, websiteUrl string) (int, error) {
 	}
 
 	selector := `a:has-text("followers"), button:has-text("followers")`
-	_, err := waitForElementOrLoadingState(pageRef, selector)
+	_, err := page.WaitForSelector(selector)
 	if err != nil {
 		log.Errorf("can not wait for selector finished %v", err)
 		if errors.Is(err, playwright.ErrTimeout) {
