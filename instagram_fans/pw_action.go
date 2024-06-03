@@ -59,19 +59,22 @@ func LogInToInstagram(account *Account, page *playwright.Page, delay int) error 
 func Login(account *Account, page *playwright.Page, delay int) error {
 	inputName := "input[name='username']"
 	if err := (*page).Fill(inputName, account.Username); err != nil {
-		log.Fatalf("Can not fill username, %v", err)
+		log.Errorf("Can not fill username, %v", err)
+		return ErrUserInvalid
 	}
 	time.Sleep(1 * time.Second)
 
 	inputPass := "input[name='password']"
 	if err := (*page).Fill(inputPass, account.Password); err != nil {
-		log.Fatalf("Can not fill password, %v", err)
+		log.Errorf("Can not fill password, %v", err)
+		return ErrUserInvalid
 	}
 	time.Sleep(1 * time.Second)
 
 	submitBtn := "button[type='submit']"
 	if err := (*page).Click(submitBtn); err != nil {
-		log.Fatalf("Can not fill password, %v", err)
+		log.Errorf("Can not click submit btn, %v", err)
+		return ErrUserInvalid
 	}
 
 	err := (*page).WaitForLoadState(playwright.PageWaitForLoadStateOptions{

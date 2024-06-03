@@ -2,6 +2,7 @@ package main
 
 import (
 	"github.com/charmbracelet/log"
+	"github.com/pkg/errors"
 	"github.com/playwright-community/playwright-go"
 	"instgram_fans/instagram_fans"
 	"sync"
@@ -9,6 +10,21 @@ import (
 
 	_ "github.com/go-sql-driver/mysql"
 )
+
+type PageContext struct {
+	Browser *playwright.Browser
+	Page    *playwright.Page
+	Account *instagram_fans.Account
+}
+
+func (p *PageContext) Close() {
+	if p.Page != nil {
+		(*p.Page).Close()
+	}
+	if p.Browser != nil {
+		(*p.Browser).Close()
+	}
+}
 
 func main() {
 	log.Printf("start")
@@ -77,11 +93,13 @@ func updateData(users []*instagram_fans.User, appContext *instagram_fans.AppCont
 	var wg sync.WaitGroup
 	var getAccountMutex sync.Mutex
 
-	userChannel := make(chan *instagram_fans.User, len(users)+1)
+	userChannel := make(chan *instagram_fans.User, len(users)+appContext.Config.AccountCount)
 	for i := 0; i < len(users); i++ {
 		userChannel <- users[i]
 	}
-	userChannel <- nil
+	for i := 0; i < appContext.Config.AccountCount; i++ {
+		userChannel <- nil
+	}
 
 	for i := 0; i < appContext.Config.AccountCount; i++ {
 		wg.Add(1)
@@ -99,57 +117,27 @@ func updateData(users []*instagram_fans.User, appContext *instagram_fans.AppCont
 
 func UpdateUserInfo(userChannel <-chan *instagram_fans.User, appContext *instagram_fans.AppContext, mutex *sync.Mutex) error {
 
-	var account *instagram_fans.Account
-	var browser *playwright.Browser
-	var page *playwright.Page
-	for {
-		_browser, err := instagram_fans.NewBrowser(appContext.Pw)
-		if err != nil {
-			log.Fatalf("Can not create browser, %v", err)
-		}
-		browser = _browser
-
-		_page, err := instagram_fans.NewPage(browser)
-		if err != nil {
-			log.Fatalf("Can not create page, %v", err)
-		}
-		page = _page
-
-		mutex.Lock()
-		account = instagram_fans.FindAccount(appContext.AccountDb, appContext.Config.AccountTable, 1)
-		mutex.Unlock()
-		if account == nil {
-			log.Errorf("No account avaliable")
-			break
-		}
-		log.Printf("using account: %v", *account)
-		if err := instagram_fans.LogInToInstagram(account, page, appContext.Config.DelayConfig.DelayAfterLogin); err != nil {
-			log.Errorf("can not login to instagram, %v", err)
-			instagram_fans.MakeAccountStatus(appContext.AccountDb, appContext.Config.AccountTable, account, -1)
-			(*page).Close()
-			(*browser).Close()
-			continue
-		}
-		break
+	pageContext, err := getLoginPage(appContext, mutex)
+	if err != nil {
+		return err
 	}
-	defer (*browser).Close()
-	defer (*page).Close()
+	defer pageContext.Close()
 
 	for user := range userChannel {
 		if user == nil {
-			instagram_fans.MakeAccountStatus(appContext.AccountDb, appContext.Config.AccountTable, account, 0)
+			instagram_fans.MakeAccountStatus(appContext.AccountDb, appContext.Config.AccountTable, pageContext.Account, 0)
 			log.Info("Receive nil!!")
 			break
 		}
 		user.FansCount = -2
 		if appContext.Config.ParseFansCount {
-			fansCount, err := instagram_fans.GetFansCount(page, user.Url)
+			fansCount, err := instagram_fans.GetFansCount(pageContext.Page, user.Url)
 			if err == nil {
 				user.FansCount = fansCount
 			}
 		}
 		if appContext.Config.ParseStoryLink {
-			storyLink, err := instagram_fans.GetStoriesLink(page, user.Url, account)
+			storyLink, err := instagram_fans.GetStoriesLink(pageContext.Page, user.Url, pageContext.Account)
 			if err == nil {
 				user.StoryLink = storyLink
 			}
@@ -159,4 +147,46 @@ func UpdateUserInfo(userChannel <-chan *instagram_fans.User, appContext *instagr
 		time.Sleep(time.Duration(appContext.Config.DelayConfig.DelayForNext) * time.Millisecond)
 	}
 	return nil
+}
+
+func getLoginPage(appContext *instagram_fans.AppContext, mutex *sync.Mutex) (*PageContext, error) {
+	var pageContext PageContext
+
+	for {
+		browser, err := instagram_fans.NewBrowser(appContext.Pw)
+		if err != nil {
+			time.Sleep(time.Duration(2) * time.Second)
+			log.Errorf("Can not create browser, %v", err)
+			return nil, errors.Wrap(err, "Can not create browser")
+		}
+		pageContext.Browser = browser
+
+		page, err := instagram_fans.NewPage(browser)
+		if err != nil {
+			time.Sleep(time.Duration(2) * time.Second)
+			(*browser).Close()
+			return nil, errors.Wrap(err, "Can not create page")
+		}
+		pageContext.Page = page
+
+		mutex.Lock()
+		account := instagram_fans.FindAccount(appContext.AccountDb, appContext.Config.AccountTable, 1)
+		mutex.Unlock()
+		if account == nil {
+			log.Errorf("No account avaliable")
+			return nil, errors.New("No account")
+		}
+		log.Printf("using account: %v", *account)
+		if err := instagram_fans.LogInToInstagram(account, page, appContext.Config.DelayConfig.DelayAfterLogin); err != nil {
+			log.Errorf("can not login to instagram, %v", err)
+			instagram_fans.MakeAccountStatus(appContext.AccountDb, appContext.Config.AccountTable, account, -1)
+			(*page).Close()
+			(*browser).Close()
+			continue
+		}
+		pageContext.Account = account
+		break
+	}
+
+	return &pageContext, nil
 }
