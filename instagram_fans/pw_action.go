@@ -262,30 +262,6 @@ func parseStoryLikes(lines []string) []string {
 	return result
 }
 
-func waitForElementOrLoadingState(page *playwright.Page, selector string) (int, error) {
-	var finalError error
-	selectorChan := make(chan int, 1)
-
-	go func() {
-		_, err := (*page).WaitForSelector(selector)
-		finalError = err
-		selectorChan <- PageFinishEleFound
-	}()
-
-	go func() {
-		err := (*page).WaitForLoadState(playwright.PageWaitForLoadStateOptions{
-			State: playwright.LoadStateDomcontentloaded,
-		})
-		finalError = err
-		selectorChan <- PageFinishStateIdle
-	}()
-
-	select {
-	case status := <-selectorChan:
-		return status, finalError
-	}
-}
-
 func findStoriesLink(site string) string {
 	parsedUrl, err := url.Parse(site)
 	if err != nil {
@@ -293,37 +269,6 @@ func findStoriesLink(site string) string {
 	}
 	newPath := "stories" + parsedUrl.Path
 	return parsedUrl.Scheme + "://" + parsedUrl.Host + "/" + newPath
-}
-
-func ParseFansCount(line string) int {
-	key := "follower_count"
-	idx := strings.Index(line, key)
-	if idx == -1 {
-		log.Print("found follower_count")
-		return -1
-	}
-	idx = idx + len(key)
-	for idx < len(line) && line[idx] != ':' {
-		idx++
-	}
-	idx++
-	if idx >= len(line) {
-		return -1
-	}
-	start := idx
-	for idx < len(line) && line[idx] != ',' {
-		idx++
-	}
-	if idx >= len(line) {
-		return -1
-	}
-	end := idx
-	fansCount := line[start:end]
-
-	if result, err := strconv.Atoi(fansCount); err == nil {
-		return result
-	}
-	return -1
 }
 
 func parseStoryLinks(link string) []string {

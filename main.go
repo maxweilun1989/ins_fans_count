@@ -168,6 +168,24 @@ func UpdateUserInfo(userChannel <-chan *instagram_fans.User, appContext *instagr
 				continue
 			}
 
+			if errors.Is(fetchErr, instagram_fans.ErrNeedLogin) {
+				log.Errorf("enconter err need login: %v, login again", fetchErr)
+				time.Sleep(time.Duration(5) * time.Second)
+				if err := instagram_fans.LogInToInstagram(pageContext.Account, pageContext.Page, appContext.Config.DelayConfig.DelayAfterLogin); err != nil {
+					pageContext.Close()
+
+					time.Sleep(time.Duration(5) * time.Second)
+
+					_pageContext, err := getLoginPage(appContext, mutex)
+					if err != nil {
+						return err
+					}
+					pageContext = _pageContext
+					continue
+				}
+
+			}
+
 			break
 		}
 
