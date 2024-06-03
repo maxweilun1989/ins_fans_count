@@ -17,6 +17,8 @@ var (
 
 	PageFinishEleFound  = 1
 	PageFinishStateIdle = 2
+
+	PageTimeOut = time.Duration(20)
 )
 
 func NewBrowser(pw *playwright.Playwright) (*playwright.Browser, error) {
@@ -48,7 +50,9 @@ func NewPage(browser *playwright.Browser) (*playwright.Page, error) {
 }
 
 func LogInToInstagram(account *Account, page *playwright.Page, delay int) error {
-	if _, err := (*page).Goto("https://www.instagram.com/accounts/login/"); err != nil {
+	if _, err := (*page).Goto("https://www.instagram.com/accounts/login/", playwright.PageGotoOptions{
+		Timeout: playwright.Float(float64(time.Second * PageTimeOut / time.Millisecond)),
+	}); err != nil {
 		log.Fatalf("Can not go to Login Page, %v", err)
 		return err
 	}
@@ -106,7 +110,9 @@ func Login(account *Account, page *playwright.Page, delay int) error {
 
 func GetFansCount(pageRef *playwright.Page, websiteUrl string) (int, error) {
 	var page = *pageRef
-	if _, err := page.Goto(websiteUrl); err != nil {
+	if _, err := page.Goto(websiteUrl, playwright.PageGotoOptions{
+		Timeout: playwright.Float(float64(time.Second * PageTimeOut / time.Millisecond)),
+	}); err != nil {
 		log.Printf("Can not go to user page, %v", err)
 	}
 
@@ -151,7 +157,9 @@ func GetStoriesLink(pageRef *playwright.Page, webSiteUrl string, account *Accoun
 		return "", nil
 	}
 
-	if _, err := page.Goto(storiesLink); err != nil {
+	if _, err := page.Goto(storiesLink, playwright.PageGotoOptions{
+		Timeout: playwright.Float(float64(time.Second * PageTimeOut / time.Millisecond)),
+	}); err != nil {
 		log.Printf("Can not go to stories page, %v", err)
 		return "", nil
 	}
