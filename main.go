@@ -35,6 +35,13 @@ func main() {
 		return
 	}
 
+	machineCode, err := instagram_fans.GetOrGenerateUUID("uuid.txt")
+	if err != nil {
+		log.Fatalf("Can not get or generate uuid, %v", err)
+		return
+	}
+	log.Infof("machine code: %s", machineCode)
+
 	db, err := instagram_fans.ConnectToDB(config.Dsn)
 	if err != nil {
 		log.Fatalf("failed to conenct to database %s, error: %v", config.Dsn, err)
@@ -58,7 +65,7 @@ func main() {
 		}
 	}(pw)
 
-	appContext := instagram_fans.AppContext{Pw: pw, Db: db, AccountDb: accountDb, Config: config}
+	appContext := instagram_fans.AppContext{Pw: pw, Db: db, AccountDb: accountDb, Config: config, MachineCode: machineCode}
 	log.Printf("Ready to run: account %v", config.AccountCount)
 
 	low := 0
@@ -125,7 +132,7 @@ func UpdateUserInfo(userChannel <-chan *instagram_fans.User, appContext *instagr
 
 	for user := range userChannel {
 		if user == nil {
-			instagram_fans.MakeAccountStatus(appContext.AccountDb, appContext.Config.AccountTable, pageContext.Account, 0)
+			instagram_fans.MakeAccountStatus(appContext.AccountDb, appContext.Config.AccountTable, pageContext.Account, 0, appContext.MachineCode)
 			log.Info("Receive nil!!")
 			break
 		}
@@ -149,7 +156,7 @@ func UpdateUserInfo(userChannel <-chan *instagram_fans.User, appContext *instagr
 			}
 
 			if errors.Is(fetchErr, instagram_fans.ErrUserInvalid) {
-				instagram_fans.MakeAccountStatus(appContext.AccountDb, appContext.Config.AccountTable, pageContext.Account, -1)
+				instagram_fans.MakeAccountStatus(appContext.AccountDb, appContext.Config.AccountTable, pageContext.Account, -1, appContext.MachineCode)
 				pageContext.Close()
 				log.Errorf("enconter err use invalid: %v, login again", fetchErr)
 				time.Sleep(time.Duration(5) * time.Second)
@@ -192,7 +199,7 @@ func getLoginPage(appContext *instagram_fans.AppContext, mutex *sync.Mutex) (*Pa
 		pageContext.Page = page
 
 		mutex.Lock()
-		account := instagram_fans.FindAccount(appContext.AccountDb, appContext.Config.AccountTable, 1)
+		account := instagram_fans.FindAccount(appContext.AccountDb, appContext.Config.AccountTable, appContext.MachineCode)
 		mutex.Unlock()
 		if account == nil {
 			log.Errorf("No account avaliable")
@@ -202,7 +209,7 @@ func getLoginPage(appContext *instagram_fans.AppContext, mutex *sync.Mutex) (*Pa
 		log.Printf("using account: %v", *account)
 		if err := instagram_fans.LogInToInstagram(account, page, appContext.Config.DelayConfig.DelayAfterLogin); err != nil {
 			log.Errorf("can not login to instagram, %v", err)
-			instagram_fans.MakeAccountStatus(appContext.AccountDb, appContext.Config.AccountTable, account, -1)
+			instagram_fans.MakeAccountStatus(appContext.AccountDb, appContext.Config.AccountTable, account, -1, "")
 			(*page).Close()
 			(*browser).Close()
 			continue

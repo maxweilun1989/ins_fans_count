@@ -33,19 +33,34 @@ func SafeCloseDB(db *gorm.DB) {
 	}
 }
 
-func FindAccount(db *gorm.DB, table string, count int) *Account {
-	var account Account
-	result := db.Table(table).Where("status = 0").Order("id ASC").Limit(count).First(&account)
+func FindAccount(db *gorm.DB, table string, machineCode string) *Account {
+	var accounts []Account
+	result := db.Table(table).Where("status = 0").Order("id ASC").Find(&accounts)
 	if result.Error != nil {
 		log.Errorf("Can not find account, %v", result.Error)
 		return nil
 	}
-	MakeAccountStatus(db, table, &account, 1)
-	return &account
+	if len(accounts) == 0 {
+		log.Errorf("No account found")
+		return nil
+	}
+
+	var account *Account
+	for _, cur := range accounts {
+		if cur.MachineCode == machineCode {
+			account = &cur
+			break
+		}
+	}
+	if account == nil {
+		account = &accounts[0]
+	}
+	MakeAccountStatus(db, table, account, 1, machineCode)
+	return account
 }
 
-func MakeAccountStatus(db *gorm.DB, table string, account *Account, status int) {
-	result := db.Table(table).Where("user = ?", account.Username).Updates(map[string]interface{}{"status": status})
+func MakeAccountStatus(db *gorm.DB, table string, account *Account, status int, machineCode string) {
+	result := db.Table(table).Where("user = ?", account.Username).Updates(map[string]interface{}{"status": status, "Machine_code": machineCode})
 	if result.Error != nil {
 		log.Errorf("Can not update account status, %v", result.Error)
 	}
