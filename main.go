@@ -155,8 +155,12 @@ func UpdateUserInfo(userChannel <-chan *instagram_fans.User, appContext *instagr
 				fetchErr = err
 			}
 
-			if errors.Is(fetchErr, instagram_fans.ErrUserInvalid) {
-				instagram_fans.MakeAccountStatus(appContext.AccountDb, appContext.Config.AccountTable, pageContext.Account, -1, appContext.MachineCode)
+			if errors.Is(fetchErr, instagram_fans.ErrUserInvalid) || errors.Is(fetchErr, instagram_fans.ErrUserUnusable) {
+				if errors.Is(fetchErr, instagram_fans.ErrUserUnusable) {
+					instagram_fans.MakeAccountStatus(appContext.AccountDb, appContext.Config.AccountTable, pageContext.Account, -2, appContext.MachineCode)
+				} else {
+					instagram_fans.MakeAccountStatus(appContext.AccountDb, appContext.Config.AccountTable, pageContext.Account, -1, appContext.MachineCode)
+				}
 				pageContext.Close()
 				log.Errorf("enconter err use invalid: %v, login again", fetchErr)
 				time.Sleep(time.Duration(5) * time.Second)
@@ -181,9 +185,8 @@ func UpdateUserInfo(userChannel <-chan *instagram_fans.User, appContext *instagr
 						return err
 					}
 					pageContext = _pageContext
-					continue
 				}
-
+				continue
 			}
 
 			break
