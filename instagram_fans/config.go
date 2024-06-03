@@ -6,24 +6,19 @@ import (
 	"os"
 )
 
-type Account struct {
-	Username string `json:"username"`
-	Password string `json:"password"`
-}
-
 type DelayConfig struct {
 	DelayForNext    int `json:"delay_for_next"`
 	DelayAfterLogin int `json:"delay_after_login"`
 }
 
 type Config struct {
-	Accounts       []Account   `json:"accounts"`
+	AccountCount   int         `json:"accountCount"`
 	DelayConfig    DelayConfig `json:"delay_config"`
 	Dsn            string      `json:"dsn"`
 	Table          string      `json:"table"`
 	Count          int         `json:"count"`
-	UserDsn        string      `json:"userDsn"`
-	UserTable      string      `json:"userTable"`
+	AccountDSN     string      `json:"accountDsn"`
+	AccountTable   string      `json:"accountTable"`
 	ParseFansCount bool        `json:"parseFansCount"`
 	ParseStoryLink bool        `json:"parseStoryLink"`
 	ShowBrowser    bool        `json:"showBrowser"`
@@ -45,7 +40,7 @@ func ParseConfig(filePath string) *Config {
 		return nil
 	}
 
-	if len(config.Accounts) == 0 {
+	if config.AccountCount == 0 {
 		log.Errorf("No account found in config")
 		return nil
 	}

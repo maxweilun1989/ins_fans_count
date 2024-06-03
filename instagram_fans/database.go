@@ -8,6 +8,13 @@ import (
 	"os"
 )
 
+type Account struct {
+	Username    string `gorm:"column:user"`
+	Password    string `gorm:"column:psw"`
+	Status      int    `gorm:"column:status"`
+	MachineCode string `gorm:"column:Machine_code"`
+}
+
 func ConnectToDB(dsn string) (*gorm.DB, error) {
 	db, err := gorm.Open(mysql.Open(dsn), &gorm.Config{})
 	if err != nil {
@@ -25,6 +32,13 @@ func SafeCloseDB(db *gorm.DB) {
 		log.Fatalf("Can not close db, %v", err)
 	}
 }
+
+func FindAccounts(db *gorm.DB, table string, count int) []*Account {
+	var accounts []*Account
+	db.Table(table).Limit(count).Find(&accounts)
+	return accounts
+}
+
 func FindUserEmptyData(db *gorm.DB, table string, limit int, low int) ([]*User, error) {
 
 	var users []*User

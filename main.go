@@ -25,6 +25,17 @@ func main() {
 	}
 	defer instagram_fans.SafeCloseDB(db)
 
+	accountDb, err := instagram_fans.ConnectToDB(config.AccountDSN)
+	if err != nil {
+		log.Fatalf("failed to conenct to database %s, error: %v", config.AccountDSN, err)
+	}
+	defer instagram_fans.SafeCloseDB(accountDb)
+
+	accounts := instagram_fans.FindAccounts(accountDb, config.AccountTable, config.AccountCount)
+	if len(accounts) == 0 {
+		log.Fatalf("No account avaliable in database")
+	}
+
 	pw, err := playwright.Run()
 	if err != nil {
 		log.Fatalf("Can not run playwright, %v", err)
@@ -36,7 +47,8 @@ func main() {
 		}
 	}(pw)
 
-	appContext := instagram_fans.AppContext{Pw: pw, Db: db, Config: config}
+	appContext := instagram_fans.AppContext{Pw: pw, Db: db, AccountDb: accountDb, Config: config}
+	log.Printf("Ready to run: account %v", accounts)
 
 	low := 0
 	for {
@@ -45,6 +57,7 @@ func main() {
 			log.Fatalf("Can not find user empty data, %v", err)
 		}
 		if len(users) == 0 {
+			log.Print("Done ALL! no data need to handle")
 			break
 		}
 
@@ -53,18 +66,18 @@ func main() {
 		log.Printf("has %d to handle, from %d to %d", len(users), begin, end)
 		db.Table(config.Table).Where("id >= ? and id <= ?", begin, end).Updates(map[string]interface{}{"fans_count": -2})
 		low = end
-		updateData(users, &appContext)
+		updateData(users, &appContext, accounts)
 	}
 }
 
-func updateData(users []*instagram_fans.User, appContext *instagram_fans.AppContext) {
-	if len(users) == 0 {
+func updateData(users []*instagram_fans.User, appContext *instagram_fans.AppContext, accounts []*instagram_fans.Account) {
+	if len(users) == 0 || len(accounts) == 0 {
 		return
 	}
 
-	perSize := len(users) / len(appContext.Config.Accounts)
+	perSize := len(users) / len(accounts)
 	var wg sync.WaitGroup
-	for i, account := range appContext.Config.Accounts {
+	for i, account := range accounts {
 		begin := i * perSize
 		end := (i + 1) * perSize
 		if end > len(users) {
@@ -85,9 +98,13 @@ func updateData(users []*instagram_fans.User, appContext *instagram_fans.AppCont
 }
 
 func UpdateUserInfo(users []*instagram_fans.User,
-	account instagram_fans.Account,
+	account *instagram_fans.Account,
 	appContext *instagram_fans.AppContext) error {
+	if len(users) == 0 {
+		return nil
+	}
 
+	log.Printf("Start to update user info account(%v) id(%d~%d)", *account, users[0].Id, users[len(users)-1].Id)
 	browser, err := instagram_fans.NewBrowser(appContext.Pw)
 	if err != nil {
 		log.Fatalf("Can not create browser, %v", err)
@@ -110,7 +127,7 @@ func UpdateUserInfo(users []*instagram_fans.User,
 		}
 	}(*page)
 
-	if err := instagram_fans.LogInToInstagram(&account, page); err != nil {
+	if err := instagram_fans.LogInToInstagram(account, page); err != nil {
 		log.Fatalf("can not login to instagram, %v", err)
 	}
 
@@ -122,7 +139,7 @@ func UpdateUserInfo(users []*instagram_fans.User,
 			user.FansCount = instagram_fans.GetFansCount(page, user.Url)
 		}
 		if appContext.Config.ParseStoryLink {
-			user.StoryLink = instagram_fans.GetStoriesLink(page, user.Url, &account)
+			user.StoryLink = instagram_fans.GetStoriesLink(page, user.Url, account)
 		}
 		log.Printf("fans_count: %d, story_link: %s for %s", user.FansCount, user.StoryLink, user.Url)
 		instagram_fans.UpdateSingleDataToDb(user, appContext)

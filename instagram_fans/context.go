@@ -6,7 +6,8 @@ import (
 )
 
 type AppContext struct {
-	Pw     *playwright.Playwright
-	Db     *gorm.DB
-	Config *Config
+	Pw        *playwright.Playwright
+	Db        *gorm.DB
+	AccountDb *gorm.DB
+	Config    *Config
 }
