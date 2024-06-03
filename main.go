@@ -130,18 +130,40 @@ func UpdateUserInfo(userChannel <-chan *instagram_fans.User, appContext *instagr
 			break
 		}
 		user.FansCount = -2
-		if appContext.Config.ParseFansCount {
-			fansCount, err := instagram_fans.GetFansCount(pageContext.Page, user.Url)
-			if err == nil {
-				user.FansCount = fansCount
+		var fetchErr error
+
+		for {
+			if appContext.Config.ParseFansCount {
+				fansCount, err := instagram_fans.GetFansCount(pageContext.Page, user.Url)
+				if err == nil {
+					user.FansCount = fansCount
+				}
+				fetchErr = err
 			}
-		}
-		if appContext.Config.ParseStoryLink {
-			storyLink, err := instagram_fans.GetStoriesLink(pageContext.Page, user.Url, pageContext.Account)
-			if err == nil {
-				user.StoryLink = storyLink
+			if appContext.Config.ParseStoryLink {
+				storyLink, err := instagram_fans.GetStoriesLink(pageContext.Page, user.Url, pageContext.Account)
+				if err == nil {
+					user.StoryLink = storyLink
+				}
+				fetchErr = err
 			}
+
+			if errors.Is(fetchErr, instagram_fans.ErrUserInvalid) {
+				instagram_fans.MakeAccountStatus(appContext.AccountDb, appContext.Config.AccountTable, pageContext.Account, -1)
+				pageContext.Close()
+				log.Errorf("enconter err use invalid: %v, login again", fetchErr)
+				time.Sleep(time.Duration(5) * time.Second)
+				_pageContext, err := getLoginPage(appContext, mutex)
+				if err != nil {
+					return err
+				}
+				pageContext = _pageContext
+				continue
+			}
+
+			break
 		}
+
 		log.Printf("fans_count: %d, story_link: %s for %s", user.FansCount, user.StoryLink, user.Url)
 		instagram_fans.UpdateSingleDataToDb(user, appContext)
 		time.Sleep(time.Duration(appContext.Config.DelayConfig.DelayForNext) * time.Millisecond)
