@@ -33,10 +33,22 @@ func SafeCloseDB(db *gorm.DB) {
 	}
 }
 
-func FindAccounts(db *gorm.DB, table string, count int) []*Account {
-	var accounts []*Account
-	db.Table(table).Limit(count).Find(&accounts)
-	return accounts
+func FindAccount(db *gorm.DB, table string, count int) *Account {
+	var account Account
+	result := db.Table(table).Where("status = 0").Order("id ASC").Limit(count).First(&account)
+	if result.Error != nil {
+		log.Errorf("Can not find account, %v", result.Error)
+		return nil
+	}
+	MakeAccountStatus(db, table, &account, 1)
+	return &account
+}
+
+func MakeAccountStatus(db *gorm.DB, table string, account *Account, status int) {
+	result := db.Table(table).Where("user = ?", account.Username).Updates(map[string]interface{}{"status": status})
+	if result.Error != nil {
+		log.Errorf("Can not update account status, %v", result.Error)
+	}
 }
 
 func FindUserEmptyData(db *gorm.DB, table string, limit int, low int) ([]*User, error) {

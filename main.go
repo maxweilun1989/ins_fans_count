@@ -31,11 +31,6 @@ func main() {
 	}
 	defer instagram_fans.SafeCloseDB(accountDb)
 
-	accounts := instagram_fans.FindAccounts(accountDb, config.AccountTable, config.AccountCount)
-	if len(accounts) == 0 {
-		log.Fatalf("No account avaliable in database")
-	}
-
 	pw, err := playwright.Run()
 	if err != nil {
 		log.Fatalf("Can not run playwright, %v", err)
@@ -48,7 +43,7 @@ func main() {
 	}(pw)
 
 	appContext := instagram_fans.AppContext{Pw: pw, Db: db, AccountDb: accountDb, Config: config}
-	log.Printf("Ready to run: account %v", accounts)
+	log.Printf("Ready to run: account %v", config.AccountCount)
 
 	low := 0
 	for {
@@ -66,18 +61,24 @@ func main() {
 		log.Printf("has %d to handle, from %d to %d", len(users), begin, end)
 		db.Table(config.Table).Where("id >= ? and id <= ?", begin, end).Updates(map[string]interface{}{"fans_count": -2})
 		low = end
-		updateData(users, &appContext, accounts)
+		updateData(users, &appContext)
 	}
 }
 
-func updateData(users []*instagram_fans.User, appContext *instagram_fans.AppContext, accounts []*instagram_fans.Account) {
-	if len(users) == 0 || len(accounts) == 0 {
+func updateData(users []*instagram_fans.User, appContext *instagram_fans.AppContext) {
+	if len(users) == 0 {
 		return
 	}
 
-	perSize := len(users) / len(accounts)
+	if appContext.Config.AccountCount == 0 {
+		return
+	}
+
+	perSize := len(users) / appContext.Config.AccountCount
 	var wg sync.WaitGroup
-	for i, account := range accounts {
+
+	var getAccountMutex sync.Mutex
+	for i := 0; i < appContext.Config.AccountCount; i++ {
 		begin := i * perSize
 		end := (i + 1) * perSize
 		if end > len(users) {
@@ -87,7 +88,7 @@ func updateData(users []*instagram_fans.User, appContext *instagram_fans.AppCont
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			err := UpdateUserInfo(users[begin:end], account, appContext)
+			err := UpdateUserInfo(users[begin:end], appContext, &getAccountMutex)
 			if err != nil {
 				log.Errorf("Update user info failed %v\n", err)
 				return
@@ -97,39 +98,42 @@ func updateData(users []*instagram_fans.User, appContext *instagram_fans.AppCont
 	wg.Wait()
 }
 
-func UpdateUserInfo(users []*instagram_fans.User,
-	account *instagram_fans.Account,
-	appContext *instagram_fans.AppContext) error {
+func UpdateUserInfo(users []*instagram_fans.User, appContext *instagram_fans.AppContext, mutex *sync.Mutex) error {
 	if len(users) == 0 {
 		return nil
 	}
 
-	log.Printf("Start to update user info account(%v) id(%d~%d)", *account, users[0].Id, users[len(users)-1].Id)
-	browser, err := instagram_fans.NewBrowser(appContext.Pw)
-	if err != nil {
-		log.Fatalf("Can not create browser, %v", err)
-	}
-	defer func(browser playwright.Browser) {
-		err := browser.Close()
+	var account *instagram_fans.Account
+	var browser *playwright.Browser
+	var page *playwright.Page
+	for {
+		_browser, err := instagram_fans.NewBrowser(appContext.Pw)
 		if err != nil {
-
+			log.Fatalf("Can not create browser, %v", err)
 		}
-	}(*browser)
+		browser = _browser
 
-	page, err := instagram_fans.NewPage(browser)
-	if err != nil {
-		log.Fatalf("Can not create page, %v", err)
-	}
-	defer func(page playwright.Page) {
-		err := page.Close()
+		_page, err := instagram_fans.NewPage(browser)
 		if err != nil {
-
+			log.Fatalf("Can not create page, %v", err)
 		}
-	}(*page)
+		page = _page
 
-	if err := instagram_fans.LogInToInstagram(account, page, appContext.Config.DelayConfig.DelayAfterLogin); err != nil {
-		log.Fatalf("can not login to instagram, %v", err)
+		mutex.Lock()
+		account = instagram_fans.FindAccount(appContext.AccountDb, appContext.Config.AccountTable, 1)
+		mutex.Unlock()
+		log.Printf("using account: %v", *account)
+		if err := instagram_fans.LogInToInstagram(account, page, appContext.Config.DelayConfig.DelayAfterLogin); err != nil {
+			log.Errorf("can not login to instagram, %v", err)
+			instagram_fans.MakeAccountStatus(appContext.AccountDb, appContext.Config.AccountTable, account, -1)
+			(*page).Close()
+			(*browser).Close()
+			continue
+		}
+		break
 	}
+	defer (*browser).Close()
+	defer (*page).Close()
 
 	for _, user := range users {
 		user.FansCount = -2
