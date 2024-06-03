@@ -92,7 +92,10 @@ func Login(account *Account, page *playwright.Page, delay int) error {
 
 	targetText := "Suspicious Login Attempt"
 	if strings.Contains(pageContent, targetText) {
-		log.Errorf("Suspicious Login Attempt found! ")
+		log.Errorf("[%v] Suspicious Login Attempt found! ", *account)
+		return ErrUserInvalid
+	} else if strings.Contains(pageContent, "your password was incorrect") {
+		log.Errorf("[%v] your password was incorrect", *account)
 		return ErrUserInvalid
 	}
 	return nil

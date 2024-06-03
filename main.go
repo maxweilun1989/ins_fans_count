@@ -74,21 +74,19 @@ func updateData(users []*instagram_fans.User, appContext *instagram_fans.AppCont
 		return
 	}
 
-	perSize := len(users) / appContext.Config.AccountCount
 	var wg sync.WaitGroup
-
 	var getAccountMutex sync.Mutex
-	for i := 0; i < appContext.Config.AccountCount; i++ {
-		begin := i * perSize
-		end := (i + 1) * perSize
-		if end > len(users) {
-			end = len(users)
-		}
 
+	userChannel := make(chan *instagram_fans.User, len(users))
+	for i := 0; i < len(users); i++ {
+		userChannel <- users[i]
+	}
+
+	for i := 0; i < appContext.Config.AccountCount; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			err := UpdateUserInfo(users[begin:end], appContext, &getAccountMutex)
+			err := UpdateUserInfo(userChannel, appContext, &getAccountMutex)
 			if err != nil {
 				log.Errorf("Update user info failed %v\n", err)
 				return
@@ -98,10 +96,7 @@ func updateData(users []*instagram_fans.User, appContext *instagram_fans.AppCont
 	wg.Wait()
 }
 
-func UpdateUserInfo(users []*instagram_fans.User, appContext *instagram_fans.AppContext, mutex *sync.Mutex) error {
-	if len(users) == 0 {
-		return nil
-	}
+func UpdateUserInfo(userChannel <-chan *instagram_fans.User, appContext *instagram_fans.AppContext, mutex *sync.Mutex) error {
 
 	var account *instagram_fans.Account
 	var browser *playwright.Browser
@@ -122,6 +117,10 @@ func UpdateUserInfo(users []*instagram_fans.User, appContext *instagram_fans.App
 		mutex.Lock()
 		account = instagram_fans.FindAccount(appContext.AccountDb, appContext.Config.AccountTable, 1)
 		mutex.Unlock()
+		if account == nil {
+			log.Errorf("No account avaliable")
+			break
+		}
 		log.Printf("using account: %v", *account)
 		if err := instagram_fans.LogInToInstagram(account, page, appContext.Config.DelayConfig.DelayAfterLogin); err != nil {
 			log.Errorf("can not login to instagram, %v", err)
@@ -135,7 +134,7 @@ func UpdateUserInfo(users []*instagram_fans.User, appContext *instagram_fans.App
 	defer (*browser).Close()
 	defer (*page).Close()
 
-	for _, user := range users {
+	for user := range userChannel {
 		user.FansCount = -2
 		if appContext.Config.ParseFansCount {
 			fansCount, err := instagram_fans.GetFansCount(page, user.Url)
