@@ -196,6 +196,7 @@ func getLoginPage(appContext *instagram_fans.AppContext, mutex *sync.Mutex) (*Pa
 		mutex.Unlock()
 		if account == nil {
 			log.Errorf("No account avaliable")
+			pageContext.Close()
 			return nil, errors.New("No account")
 		}
 		log.Printf("using account: %v", *account)

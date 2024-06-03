@@ -13,7 +13,9 @@ import (
 )
 
 var (
-	ErrUserInvalid = errors.New("user is invalid")
+	ErrUserInvalid  = errors.New("user is invalid")
+	ErrNeedLogin    = errors.New("need login")
+	ErrUserUnusable = errors.New("user is unusable")
 
 	PageFinishEleFound  = 1
 	PageFinishStateIdle = 2
@@ -93,7 +95,7 @@ func Login(account *Account, page *playwright.Page, delay int) error {
 
 	pageContent, err := (*page).Content()
 	if err != nil {
-		log.Fatalf("Can not get page content, %v", err)
+		log.Errorf("Can not get page content, %v", err)
 		return ErrUserInvalid
 	}
 
@@ -121,7 +123,7 @@ func GetFansCount(pageRef *playwright.Page, websiteUrl string) (int, error) {
 	if err != nil {
 		log.Errorf("can not wait for selector finished %v", err)
 		if errors.Is(err, playwright.ErrTimeout) {
-			return -1, ErrUserInvalid
+			return -1, commonErrorHandle(pageRef)
 		}
 	}
 
@@ -147,7 +149,45 @@ func GetFansCount(pageRef *playwright.Page, websiteUrl string) (int, error) {
 		}
 		return count, nil
 	}
+
 	return -1, errors.Errorf("")
+}
+
+func commonErrorHandle(page *playwright.Page) error {
+
+	siteUrl := (*page).URL()
+	if strings.Contains(siteUrl, "https://www.instagram.com/accounts/login/") {
+		return ErrNeedLogin
+	}
+
+	content, err := (*page).Content()
+	if err != nil {
+		return ErrUserInvalid
+	}
+
+	if strings.Contains(content, "Page Not Found") || strings.Contains(content, "Page Not Found • Instagram") {
+		return ErrUserUnusable
+	}
+
+	if strings.Contains(content, "Suspicious Login Attempt") {
+		return ErrUserInvalid
+	} else if strings.Contains(content, "your password was incorrect") {
+		return ErrUserInvalid
+	}
+
+	dismissSelector := `a:has-text("followers"), button:has-text("followers")`
+	dismissButton, err := (*page).QuerySelector(dismissSelector)
+	if err != nil {
+		return ErrUserInvalid
+	}
+	if dismissButton != nil {
+		if err := dismissButton.Click(); err != nil {
+			return ErrUserInvalid
+		}
+		time.Sleep(time.Duration(5) * time.Second)
+		return nil
+	}
+	return ErrUserInvalid
 }
 
 func GetStoriesLink(pageRef *playwright.Page, webSiteUrl string, account *Account) (string, error) {
@@ -171,8 +211,7 @@ func GetStoriesLink(pageRef *playwright.Page, webSiteUrl string, account *Accoun
 	newUrl := page.URL()
 
 	if strings.Contains(newUrl, "https://www.instagram.com/accounts/login/") {
-
-		return "", ErrUserInvalid
+		return "", ErrNeedLogin
 	}
 
 	content, err := page.Content()
