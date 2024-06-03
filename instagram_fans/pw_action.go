@@ -2,6 +2,7 @@ package instagram_fans
 
 import (
 	"github.com/charmbracelet/log"
+	"github.com/pkg/errors"
 	"github.com/playwright-community/playwright-go"
 	"net/url"
 	"regexp"
@@ -9,6 +10,13 @@ import (
 	"strconv"
 	"strings"
 	"time"
+)
+
+var (
+	ErrUserInvalid = errors.New("user is invalid")
+
+	PageFinishEleFound  = 1
+	PageFinishStateIdle = 2
 )
 
 func NewBrowser(pw *playwright.Playwright) (*playwright.Browser, error) {
@@ -39,17 +47,16 @@ func NewPage(browser *playwright.Browser) (*playwright.Page, error) {
 	return &page, err
 }
 
-func LogInToInstagram(account *Account, page *playwright.Page) error {
+func LogInToInstagram(account *Account, page *playwright.Page, delay int) error {
 	if _, err := (*page).Goto("https://www.instagram.com/accounts/login/"); err != nil {
 		log.Fatalf("Can not go to Login Page, %v", err)
 		return err
 	}
 
-	Login(account, page)
-	return nil
+	return Login(account, page, delay)
 }
 
-func Login(account *Account, page *playwright.Page) {
+func Login(account *Account, page *playwright.Page, delay int) error {
 	inputName := "input[name='username']"
 	if err := (*page).Fill(inputName, account.Username); err != nil {
 		log.Fatalf("Can not fill username, %v", err)
@@ -66,28 +73,55 @@ func Login(account *Account, page *playwright.Page) {
 	if err := (*page).Click(submitBtn); err != nil {
 		log.Fatalf("Can not fill password, %v", err)
 	}
+
+	err := (*page).WaitForLoadState(playwright.PageWaitForLoadStateOptions{
+		State: playwright.LoadStateNetworkidle,
+	})
+	if err != nil {
+		log.Errorf("Can not wait for load state, %v", err)
+		return ErrUserInvalid
+	}
+
+	time.Sleep(time.Duration(delay*1000) * time.Millisecond)
+
+	pageContent, err := (*page).Content()
+	if err != nil {
+		log.Fatalf("Can not get page content, %v", err)
+		return ErrUserInvalid
+	}
+
+	targetText := "Suspicious Login Attempt"
+	if strings.Contains(pageContent, targetText) {
+		log.Errorf("Suspicious Login Attempt found! ")
+		return ErrUserInvalid
+	}
+	return nil
 }
 
-func GetFansCount(pageRef *playwright.Page, websiteUrl string) int {
+func GetFansCount(pageRef *playwright.Page, websiteUrl string) (int, error) {
 	var page = *pageRef
 	if _, err := page.Goto(websiteUrl); err != nil {
 		log.Printf("Can not go to user page, %v", err)
 	}
 
-	_, err := page.WaitForSelector("body")
+	selector := `a:has-text("followers"), button:has-text("followers")`
+	_, err := waitForElementOrLoadingState(pageRef, selector)
 	if err != nil {
-		log.Printf("can not wait for selector finished %v", err)
+		log.Errorf("can not wait for selector finished %v", err)
+		if errors.Is(err, playwright.ErrTimeout) {
+			return -1, ErrUserInvalid
+		}
 	}
 
-	elements, err := page.QuerySelectorAll(`a:has-text("followers"), button:has-text("followers")`)
+	elements, err := page.QuerySelectorAll(selector)
 	if err != nil {
-		log.Fatalf("could not query selector: %v", err)
+		log.Errorf("could not query selector: %v", err)
 	}
 
 	for _, element := range elements {
 		textContent, err := element.TextContent()
 		if err != nil {
-			log.Printf("could not get text content: %v", err)
+			log.Errorf("could not get text content: %v", err)
 		}
 
 		parts := strings.Split(textContent, " ")
@@ -96,57 +130,52 @@ func GetFansCount(pageRef *playwright.Page, websiteUrl string) int {
 
 		count, err := ParseFollowerCount(countStr)
 		if err != nil {
-			log.Printf("---- falied to convert %s to int(%v)", countStr, err)
+			log.Errorf("---- falied to convert %s to int(%v)", countStr, err)
 			continue
 		}
-		return count
+		return count, nil
 	}
-	return -1
+	return -1, errors.Errorf("")
 }
 
-func GetStoriesLink(pageRef *playwright.Page, webSiteUrl string, account *Account) string {
+func GetStoriesLink(pageRef *playwright.Page, webSiteUrl string, account *Account) (string, error) {
 	page := *pageRef
 	storiesLink := findStoriesLink(webSiteUrl)
 	if storiesLink == "" {
-		return ""
+		return "", nil
 	}
 
-	var hasError = true
-	for i := 0; i < 2; i++ {
-		if _, err := page.Goto(storiesLink); err != nil {
-			log.Printf("Can not go to stories page, %v", err)
-			time.Sleep(2 * time.Second)
-			continue
-		}
-
-		if _, err := page.WaitForSelector("body"); err != nil {
-			log.Printf("wait for body show failed: %v", err)
-		}
-
-		newUrl := page.URL()
-
-		if strings.Contains(newUrl, "https://www.instagram.com/accounts/login/") {
-			Login(account, pageRef)
-			time.Sleep(2 * time.Second)
-			continue
-		}
-
-		if strings.Contains(newUrl, storiesLink) {
-			hasError = false
-			break
-		}
+	if _, err := page.Goto(storiesLink); err != nil {
+		log.Printf("Can not go to stories page, %v", err)
+		return "", nil
 	}
 
-	if hasError {
-		return ""
+	if _, err := page.WaitForSelector("body"); err != nil {
+		log.Printf("wait for body show failed: %v", err)
 	}
+
+	newUrl := page.URL()
+
+	if strings.Contains(newUrl, "https://www.instagram.com/accounts/login/") {
+
+		return "", ErrUserInvalid
+	}
+
 	content, err := page.Content()
 	if err != nil {
 		log.Printf("Can not read content, %v", err)
-		return ""
+		return "", err
 	}
 
 	lines := strings.Split(content, "\n")
+	result := parseStoryLikes(lines)
+	if len(result) == 0 {
+		return "", err
+	}
+	return strings.Join(result, ","), nil
+}
+
+func parseStoryLikes(lines []string) []string {
 	result := make([]string, 0)
 
 	for _, line := range lines {
@@ -164,11 +193,31 @@ func GetStoriesLink(pageRef *playwright.Page, webSiteUrl string, account *Accoun
 			}
 		}
 	}
+	return result
+}
 
-	if len(result) == 0 {
-		return ""
+func waitForElementOrLoadingState(page *playwright.Page, selector string) (int, error) {
+	var finalError error
+	selectorChan := make(chan int, 1)
+
+	go func() {
+		_, err := (*page).WaitForSelector(selector)
+		finalError = err
+		selectorChan <- PageFinishEleFound
+	}()
+
+	go func() {
+		err := (*page).WaitForLoadState(playwright.PageWaitForLoadStateOptions{
+			State: playwright.LoadStateDomcontentloaded,
+		})
+		finalError = err
+		selectorChan <- PageFinishStateIdle
+	}()
+
+	select {
+	case status := <-selectorChan:
+		return status, finalError
 	}
-	return strings.Join(result, ",")
 }
 
 func findStoriesLink(site string) string {

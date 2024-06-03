@@ -1,4 +1,8 @@
 {
+  "delay_config" : {
+    "delay_after_login": 10,
+    "delay_for_next": 2
+  },
   "accountCount": 1,
   "count" : 5,
   "dsn": "root:19890919@tcp(127.0.0.1:3306)/instagram",

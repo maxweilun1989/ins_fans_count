@@ -127,19 +127,23 @@ func UpdateUserInfo(users []*instagram_fans.User,
 		}
 	}(*page)
 
-	if err := instagram_fans.LogInToInstagram(account, page); err != nil {
+	if err := instagram_fans.LogInToInstagram(account, page, appContext.Config.DelayConfig.DelayAfterLogin); err != nil {
 		log.Fatalf("can not login to instagram, %v", err)
 	}
-
-	time.Sleep(time.Duration(appContext.Config.DelayConfig.DelayAfterLogin) * time.Millisecond)
 
 	for _, user := range users {
 		user.FansCount = -2
 		if appContext.Config.ParseFansCount {
-			user.FansCount = instagram_fans.GetFansCount(page, user.Url)
+			fansCount, err := instagram_fans.GetFansCount(page, user.Url)
+			if err != nil {
+				user.FansCount = fansCount
+			}
 		}
 		if appContext.Config.ParseStoryLink {
-			user.StoryLink = instagram_fans.GetStoriesLink(page, user.Url, account)
+			storyLink, err := instagram_fans.GetStoriesLink(page, user.Url, account)
+			if err != nil {
+				user.StoryLink = storyLink
+			}
 		}
 		log.Printf("fans_count: %d, story_link: %s for %s", user.FansCount, user.StoryLink, user.Url)
 		instagram_fans.UpdateSingleDataToDb(user, appContext)
