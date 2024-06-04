@@ -92,7 +92,7 @@ func Login(account *Account, page *playwright.Page) error {
 			return ErrUserInvalid
 		}
 
-		time.Sleep(time.Duration(1000) * time.Millisecond)
+		time.Sleep(time.Duration(5) * time.Second)
 
 		pageContent, err := (*page).Content()
 		if err != nil {
@@ -108,8 +108,6 @@ func Login(account *Account, page *playwright.Page) error {
 			log.Errorf("[%v] your password was incorrect", *account)
 			return ErrUserInvalid
 		}
-
-		time.Sleep(time.Duration(5) * time.Second)
 
 		dismissSelector := `role=button >> text=Dismiss`
 		dismissButton, err := (*page).QuerySelector(dismissSelector)

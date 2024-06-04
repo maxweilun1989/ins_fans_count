@@ -56,29 +56,30 @@ func main() {
 			log.Infof("Done ALL! no data need to handle")
 			break
 		}
+
+		// 计算可以使用的账号
+		finalAccountCount := computeAccountCount(appContext)
+		if finalAccountCount == 0 {
+			break
+		}
+
 		instagram_fans.MarkUserStatusIsWorking(users, db, config.Table)
-		if err := updateData(users, appContext); err != nil {
+		if err := updateData(users, appContext, finalAccountCount); err != nil {
 			log.Errorf("Update data failed %v", err)
 			break
 		}
 	}
 }
 
-func updateData(users []*instagram_fans.User, appContext *instagram_fans.AppContext) error {
-
-	// 计算可以使用的账号
-	finalAccountCount := computeAccountCount(appContext)
-	if finalAccountCount == 0 {
-		return errors.New("No account available!!")
-	}
+func updateData(users []*instagram_fans.User, appContext *instagram_fans.AppContext, count int) error {
 
 	var wg sync.WaitGroup
 	var getAccountMutex sync.Mutex
 
 	// 准备好数据
-	userChannel := prepareUserChannel(users, finalAccountCount)
+	userChannel := prepareUserChannel(users, count)
 
-	for i := 0; i < finalAccountCount; i++ {
+	for i := 0; i < count; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -124,7 +125,7 @@ func UpdateUserInfo(userChannel <-chan *instagram_fans.User, appContext *instagr
 			}
 		}
 
-		instagram_fans.MakeAccountStatus(appContext.AccountDb, appContext.Config.AccountTable, pageContext.Account, 1, appContext.MachineCode)
+		instagram_fans.SetAccountMachineCode(appContext.AccountDb, appContext.Config.AccountTable, pageContext.Account, appContext.MachineCode)
 
 	FetchData:
 		user.FansCount = -2
@@ -159,9 +160,13 @@ func UpdateUserInfo(userChannel <-chan *instagram_fans.User, appContext *instagr
 		time.Sleep(time.Duration(appContext.Config.DelayConfig.DelayForNext) * time.Millisecond)
 	}
 
-	if pageContext != nil && pageContext.Account != nil {
-		instagram_fans.MakeAccountStatus(appContext.AccountDb, appContext.Config.AccountTable, pageContext.Account, 0, appContext.MachineCode)
+	if pageContext != nil {
+		if pageContext.Account != nil {
+			instagram_fans.MakeAccountStatus(appContext.AccountDb, appContext.Config.AccountTable, pageContext.Account, 0, appContext.MachineCode)
+		}
+		pageContext.Close()
 	}
+
 	return nil
 }
 

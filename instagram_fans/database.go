@@ -65,12 +65,18 @@ func FindAccount(db *gorm.DB, table string, machineCode string) *Account {
 	if account == nil {
 		account = &accounts[0]
 	}
-	MakeAccountStatus(db, table, account, 1, machineCode)
 	return account
 }
 
 func MakeAccountStatus(db *gorm.DB, table string, account *Account, status int, machineCode string) {
 	result := db.Table(table).Where("user = ?", account.Username).Updates(map[string]interface{}{"status": status, "Machine_code": machineCode})
+	if result.Error != nil {
+		log.Errorf("Can not update account status, %v", result.Error)
+	}
+}
+
+func SetAccountMachineCode(db *gorm.DB, table string, account *Account, machineCode string) {
+	result := db.Table(table).Where("user = ?", account.Username).Updates(map[string]interface{}{"Machine_code": machineCode})
 	if result.Error != nil {
 		log.Errorf("Can not update account status, %v", result.Error)
 	}
@@ -88,7 +94,10 @@ func MarkUserStatusIsWorking(users []*User, db *gorm.DB, table string) {
 	begin := users[0].Id
 	end := users[len(users)-1].Id
 	log.Printf("has %d to handle, from %d to %d", len(users), begin, end)
-	db.Table(table).Where("id >= ? and id <= ?", begin, end).Updates(map[string]interface{}{"fans_count": -2})
+	db.Table(table).
+		Where("id >= ? and id <= ?", begin, end).
+		Where("fans_count = -1").
+		Updates(map[string]interface{}{"fans_count": -2})
 }
 
 func UpdateSingleDataToDb(user *User, appContext *AppContext) {
