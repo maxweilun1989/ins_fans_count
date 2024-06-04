@@ -185,6 +185,8 @@ func commonErrorHandle(page *playwright.Page) error {
 		return ErrNeedLogin
 	}
 
+	time.Sleep(time.Duration(5) * time.Second)
+
 	content, err := (*page).Content()
 	if err != nil {
 		return ErrUserInvalid
@@ -192,19 +194,11 @@ func commonErrorHandle(page *playwright.Page) error {
 
 	if strings.Contains(content, "Sorry, this page isn't available.") {
 		return ErrPageUnavailable
-	}
-
-	if strings.Contains(content, "Page Not Found") || strings.Contains(content, "Page Not Found • Instagram") {
-		return ErrUserUnusable
-	}
-
-	if strings.Contains(content, "Suspicious Login Attempt") {
+	} else if strings.Contains(content, "Suspicious Login Attempt") {
 		return ErrUserInvalid
 	} else if strings.Contains(content, "your password was incorrect") {
-		return ErrUserInvalid
+		return ErrUserUnusable
 	}
-
-	time.Sleep(time.Duration(5) * time.Second)
 
 	dismissSelector := `role=button >> text=Dismiss`
 	dismissButton, err := (*page).QuerySelector(dismissSelector)

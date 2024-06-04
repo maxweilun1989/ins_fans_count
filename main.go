@@ -191,6 +191,7 @@ func getLoginPageContext(appContext *instagram_fans.AppContext, account *instagr
 	log.Printf("using account: %v", *account)
 
 	if err := instagram_fans.LogInToInstagram(account, page); err != nil {
+		log.Errorf("---> getLoginPage Can not login to instagram!!! %v", err)
 		instagram_fans.MakeAccountStatus(appContext.AccountDb, appContext.Config.AccountTable, account, -1, appContext.MachineCode)
 		return &pageContext, errors.New("Can not login to instagram!!!")
 	}
@@ -224,7 +225,7 @@ func computeAccountCount(appContext *instagram_fans.AppContext) int {
 
 func handleFetchErr(fetchErr error, appContext *instagram_fans.AppContext, pageContext *PageContext) int {
 	if errors.Is(fetchErr, instagram_fans.ErrUserInvalid) || errors.Is(fetchErr, instagram_fans.ErrUserUnusable) {
-		log.Errorf("enconter err need ChooseAccountAndLogin: %v, ChooseAccountAndLogin again", fetchErr)
+		log.Errorf("---> enconter err need ChooseAccountAndLogin: %v, ChooseAccountAndLogin again", fetchErr)
 		if errors.Is(fetchErr, instagram_fans.ErrUserUnusable) {
 			instagram_fans.MakeAccountStatus(appContext.AccountDb, appContext.Config.AccountTable, pageContext.Account, -2, appContext.MachineCode)
 		} else {

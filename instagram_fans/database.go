@@ -86,14 +86,13 @@ func FindUserEmptyData(db *gorm.DB, table string, limit int, low int) ([]*User, 
 
 	var users []*User
 	db.Table(table).Where("fans_count = -1").Where("id > ?", low).Order("id ASC").Limit(limit).Find(&users)
-	// queryStr := fmt.Sprintf("SELECT id, url FROM %s WHERE fans_count = -1 and id > %d order by id ASC limit %d", table, low, limit)
 	return users, nil
 }
 
 func MarkUserStatusIsWorking(users []*User, db *gorm.DB, table string) {
 	begin := users[0].Id
 	end := users[len(users)-1].Id
-	log.Printf("has %d to handle, from %d to %d", len(users), begin, end)
+	log.Infof("has %d to handle, from %d to %d", len(users), begin, end)
 	db.Table(table).
 		Where("id >= ? and id <= ?", begin, end).
 		Where("fans_count = -1").
