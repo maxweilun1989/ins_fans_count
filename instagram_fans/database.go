@@ -33,6 +33,16 @@ func SafeCloseDB(db *gorm.DB) {
 	}
 }
 
+func UsableAccountCount(db *gorm.DB, table string) int {
+	var count int64
+	result := db.Table(table).Where("status = 0").Count(&count)
+	if result.Error != nil {
+		log.Errorf("Can not get account count, %v", result.Error)
+		return 0
+	}
+	return int(count)
+}
+
 func FindAccount(db *gorm.DB, table string, machineCode string) *Account {
 	var accounts []Account
 	result := db.Table(table).Where("status = 0").Order("id ASC").Find(&accounts)
@@ -72,6 +82,13 @@ func FindUserEmptyData(db *gorm.DB, table string, limit int, low int) ([]*User, 
 	db.Table(table).Where("fans_count = -1").Where("id > ?", low).Order("id ASC").Limit(limit).Find(&users)
 	// queryStr := fmt.Sprintf("SELECT id, url FROM %s WHERE fans_count = -1 and id > %d order by id ASC limit %d", table, low, limit)
 	return users, nil
+}
+
+func MarkUserStatusIsWorking(users []*User, db *gorm.DB, table string) {
+	begin := users[0].Id
+	end := users[len(users)-1].Id
+	log.Printf("has %d to handle, from %d to %d", len(users), begin, end)
+	db.Table(table).Where("id >= ? and id <= ?", begin, end).Updates(map[string]interface{}{"fans_count": -2})
 }
 
 func UpdateSingleDataToDb(user *User, appContext *AppContext) {

@@ -29,86 +29,50 @@ func (p *PageContext) Close() {
 func main() {
 	log.Printf("start")
 
-	config := instagram_fans.ParseConfig("config.json")
-	if config == nil {
-		log.Fatalf("Can not parse config!!!")
+	appContext, err := instagram_fans.InitContext()
+	if err != nil {
+		log.Fatalf("Can not init context, %v", err)
 		return
 	}
+	defer appContext.DestroyContext()
 
-	machineCode, err := instagram_fans.GetOrGenerateUUID("uuid.txt")
-	if err != nil {
-		log.Fatalf("Can not get or generate uuid, %v", err)
-		return
-	}
-	log.Infof("machine code: %s", machineCode)
-
-	db, err := instagram_fans.ConnectToDB(config.Dsn)
-	if err != nil {
-		log.Fatalf("failed to conenct to database %s, error: %v", config.Dsn, err)
-	}
-	defer instagram_fans.SafeCloseDB(db)
-
-	accountDb, err := instagram_fans.ConnectToDB(config.AccountDSN)
-	if err != nil {
-		log.Fatalf("failed to conenct to database %s, error: %v", config.AccountDSN, err)
-	}
-	defer instagram_fans.SafeCloseDB(accountDb)
-
-	pw, err := playwright.Run()
-	if err != nil {
-		log.Fatalf("Can not run playwright, %v", err)
-	}
-	defer func(pw *playwright.Playwright) {
-		err := pw.Stop()
-		if err != nil {
-			log.Fatalf("Can not stop playwright, %v", err)
-		}
-	}(pw)
-
-	appContext := instagram_fans.AppContext{Pw: pw, Db: db, AccountDb: accountDb, Config: config, MachineCode: machineCode}
-	log.Printf("Ready to run: account %v", config.AccountCount)
+	db := appContext.Db
+	config := appContext.Config
 
 	low := 0
 	for {
 		users, err := instagram_fans.FindUserEmptyData(db, config.Table, config.Count, low)
 		if err != nil {
 			log.Fatalf("Can not find user empty data, %v", err)
-		}
-		if len(users) == 0 {
-			log.Print("Done ALL! no data need to handle")
 			break
 		}
-
-		begin := users[0].Id
-		end := users[len(users)-1].Id
-		log.Printf("has %d to handle, from %d to %d", len(users), begin, end)
-		db.Table(config.Table).Where("id >= ? and id <= ?", begin, end).Updates(map[string]interface{}{"fans_count": -2})
-		low = end
-		updateData(users, &appContext)
+		if len(users) == 0 {
+			log.Infof("Done ALL! no data need to handle")
+			break
+		}
+		instagram_fans.MarkUserStatusIsWorking(users, db, config.Table)
+		if err := updateData(users, appContext); err != nil {
+			log.Errorf("Update data failed %v", err)
+			break
+		}
 	}
 }
 
-func updateData(users []*instagram_fans.User, appContext *instagram_fans.AppContext) {
-	if len(users) == 0 {
-		return
-	}
+func updateData(users []*instagram_fans.User, appContext *instagram_fans.AppContext) error {
 
-	if appContext.Config.AccountCount == 0 {
-		return
+	// 计算可以使用的账号
+	finalAccountCount := computeAccountCount(appContext)
+	if finalAccountCount == 0 {
+		return errors.New("No account available!!")
 	}
 
 	var wg sync.WaitGroup
 	var getAccountMutex sync.Mutex
 
-	userChannel := make(chan *instagram_fans.User, len(users)+appContext.Config.AccountCount)
-	for i := 0; i < len(users); i++ {
-		userChannel <- users[i]
-	}
-	for i := 0; i < appContext.Config.AccountCount; i++ {
-		userChannel <- nil
-	}
+	// 准备好数据
+	userChannel := prepareUserChannel(users, finalAccountCount)
 
-	for i := 0; i < appContext.Config.AccountCount; i++ {
+	for i := 0; i < finalAccountCount; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -222,6 +186,7 @@ func getLoginPage(appContext *instagram_fans.AppContext, mutex *sync.Mutex) (*Pa
 		mutex.Lock()
 		account := instagram_fans.FindAccount(appContext.AccountDb, appContext.Config.AccountTable, appContext.MachineCode)
 		mutex.Unlock()
+
 		if account == nil {
 			log.Errorf("No account avaliable")
 			pageContext.Close()
@@ -240,4 +205,26 @@ func getLoginPage(appContext *instagram_fans.AppContext, mutex *sync.Mutex) (*Pa
 	}
 
 	return &pageContext, nil
+}
+
+func prepareUserChannel(users []*instagram_fans.User, finalAccountCount int) chan *instagram_fans.User {
+	userChannel := make(chan *instagram_fans.User, len(users)+finalAccountCount)
+	for i := 0; i < len(users); i++ {
+		userChannel <- users[i]
+	}
+	for i := 0; i < finalAccountCount; i++ {
+		userChannel <- nil
+	}
+	return userChannel
+}
+
+func computeAccountCount(appContext *instagram_fans.AppContext) int {
+	usableAccountCount := instagram_fans.UsableAccountCount(appContext.AccountDb, appContext.Config.AccountTable)
+	if usableAccountCount == 0 {
+		log.Errorf("No Count Avaliable found in account table")
+		return 0
+	}
+
+	finalAccountCount := min(usableAccountCount, appContext.Config.AccountCount)
+	return finalAccountCount
 }
