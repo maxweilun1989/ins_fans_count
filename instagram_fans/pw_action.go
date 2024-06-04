@@ -51,7 +51,7 @@ func NewPage(browser *playwright.Browser) (*playwright.Page, error) {
 	return &page, err
 }
 
-func LogInToInstagram(account *Account, page *playwright.Page, delay int) error {
+func LogInToInstagram(account *Account, page *playwright.Page) error {
 	if _, err := (*page).Goto("https://www.instagram.com/accounts/login/", playwright.PageGotoOptions{
 		Timeout: playwright.Float(float64(time.Second * PageTimeOut / time.Millisecond)),
 	}); err != nil {
@@ -59,10 +59,10 @@ func LogInToInstagram(account *Account, page *playwright.Page, delay int) error 
 		return err
 	}
 
-	return Login(account, page, delay)
+	return Login(account, page)
 }
 
-func Login(account *Account, page *playwright.Page, delay int) error {
+func Login(account *Account, page *playwright.Page) error {
 	for i := 0; i < 2; i++ {
 		inputName := "input[name='username']"
 		if err := (*page).Fill(inputName, account.Username); err != nil {
@@ -92,7 +92,7 @@ func Login(account *Account, page *playwright.Page, delay int) error {
 			return ErrUserInvalid
 		}
 
-		time.Sleep(time.Duration(delay*1000) * time.Millisecond)
+		time.Sleep(time.Duration(1000) * time.Millisecond)
 
 		pageContent, err := (*page).Content()
 		if err != nil {

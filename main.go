@@ -11,6 +11,11 @@ import (
 	_ "github.com/go-sql-driver/mysql"
 )
 
+var (
+	StatusNeedAnotherAccount = 1 // StatusNeedAnotherAccount 需要重新选择另外一个账号登录
+	StatusCanRefetch         = 2 // StatusCanRefetch 重新登录成功，可以重新获取数据
+)
+
 type PageContext struct {
 	Browser *playwright.Browser
 	Page    *playwright.Page
@@ -24,6 +29,7 @@ func (p *PageContext) Close() {
 	if p.Browser != nil {
 		(*p.Browser).Close()
 	}
+	p.Account = nil
 }
 
 func main() {
@@ -84,126 +90,105 @@ func updateData(users []*instagram_fans.User, appContext *instagram_fans.AppCont
 		}()
 	}
 	wg.Wait()
+	return nil
 }
 
 func UpdateUserInfo(userChannel <-chan *instagram_fans.User, appContext *instagram_fans.AppContext, mutex *sync.Mutex) error {
-
-	pageContext, err := getLoginPage(appContext, mutex)
-	if err != nil {
-		return err
-	}
-	defer pageContext.Close()
+	var pageContext *PageContext
+	var err error
 
 	for user := range userChannel {
 		if user == nil {
-			instagram_fans.MakeAccountStatus(appContext.AccountDb, appContext.Config.AccountTable, pageContext.Account, 0, appContext.MachineCode)
-			log.Info("Receive nil!!")
 			break
 		}
+
+	ChooseAccountAndLogin:
+		// 创建pageContext，找到一个可用的账号并登录成功
+		if pageContext == nil {
+			mutex.Lock()
+			account := instagram_fans.FindAccount(appContext.AccountDb, appContext.Config.AccountTable, appContext.MachineCode)
+			mutex.Unlock()
+
+			if account == nil {
+				err = errors.New("No account available!!")
+				break
+			}
+
+			pageContext, err = getLoginPageContext(appContext, account)
+			if err != nil {
+				if pageContext != nil {
+					pageContext.Close()
+				}
+				pageContext = nil
+				continue
+			}
+		}
+
+		instagram_fans.MakeAccountStatus(appContext.AccountDb, appContext.Config.AccountTable, pageContext.Account, 1, appContext.MachineCode)
+
+	FetchData:
 		user.FansCount = -2
 		var fetchErr error
 
-		for {
-			if appContext.Config.ParseFansCount {
-				fansCount, err := instagram_fans.GetFansCount(pageContext.Page, user.Url)
-				if err == nil {
-					user.FansCount = fansCount
-				}
-				fetchErr = err
+		if appContext.Config.ParseFansCount {
+			fansCount, err := instagram_fans.GetFansCount(pageContext.Page, user.Url)
+			if err == nil {
+				user.FansCount = fansCount
 			}
-			if appContext.Config.ParseStoryLink {
-				storyLink, err := instagram_fans.GetStoriesLink(pageContext.Page, user.Url, pageContext.Account)
-				if err == nil {
-					user.StoryLink = storyLink
-				}
-				fetchErr = err
+			fetchErr = err
+		}
+		if appContext.Config.ParseStoryLink {
+			storyLink, err := instagram_fans.GetStoriesLink(pageContext.Page, user.Url, pageContext.Account)
+			if err == nil {
+				user.StoryLink = storyLink
 			}
+			fetchErr = err
+		}
 
-			if errors.Is(fetchErr, instagram_fans.ErrUserInvalid) || errors.Is(fetchErr, instagram_fans.ErrUserUnusable) {
-				if errors.Is(fetchErr, instagram_fans.ErrUserUnusable) {
-					instagram_fans.MakeAccountStatus(appContext.AccountDb, appContext.Config.AccountTable, pageContext.Account, -2, appContext.MachineCode)
-				} else {
-					instagram_fans.MakeAccountStatus(appContext.AccountDb, appContext.Config.AccountTable, pageContext.Account, -1, appContext.MachineCode)
-				}
-				pageContext.Close()
-				log.Errorf("enconter err use invalid: %v, login again", fetchErr)
-				time.Sleep(time.Duration(5) * time.Second)
-				_pageContext, err := getLoginPage(appContext, mutex)
-				if err != nil {
-					return err
-				}
-				pageContext = _pageContext
-				continue
+		if fetchErr != nil {
+			status := handleFetchErr(fetchErr, appContext, pageContext)
+			if status == StatusNeedAnotherAccount {
+				goto ChooseAccountAndLogin
+			} else if status == StatusCanRefetch {
+				goto FetchData
 			}
-
-			if errors.Is(fetchErr, instagram_fans.ErrNeedLogin) {
-				log.Errorf("enconter err need login: %v, login again", fetchErr)
-				time.Sleep(time.Duration(5) * time.Second)
-				if err := instagram_fans.LogInToInstagram(pageContext.Account, pageContext.Page, appContext.Config.DelayConfig.DelayAfterLogin); err != nil {
-					pageContext.Close()
-
-					time.Sleep(time.Duration(5) * time.Second)
-
-					_pageContext, err := getLoginPage(appContext, mutex)
-					if err != nil {
-						return err
-					}
-					pageContext = _pageContext
-				}
-				continue
-			}
-
-			break
 		}
 
 		log.Printf("fans_count: %d, story_link: %s for %s", user.FansCount, user.StoryLink, user.Url)
 		instagram_fans.UpdateSingleDataToDb(user, appContext)
 		time.Sleep(time.Duration(appContext.Config.DelayConfig.DelayForNext) * time.Millisecond)
 	}
+
+	if pageContext != nil && pageContext.Account != nil {
+		instagram_fans.MakeAccountStatus(appContext.AccountDb, appContext.Config.AccountTable, pageContext.Account, 0, appContext.MachineCode)
+	}
 	return nil
 }
 
-func getLoginPage(appContext *instagram_fans.AppContext, mutex *sync.Mutex) (*PageContext, error) {
+func getLoginPageContext(appContext *instagram_fans.AppContext, account *instagram_fans.Account) (*PageContext, error) {
 	var pageContext PageContext
 
-	for {
-		browser, err := instagram_fans.NewBrowser(appContext.Pw)
-		if err != nil {
-			time.Sleep(time.Duration(2) * time.Second)
-			log.Errorf("Can not create browser, %v", err)
-			return nil, errors.Wrap(err, "Can not create browser")
-		}
-		pageContext.Browser = browser
-
-		page, err := instagram_fans.NewPage(browser)
-		if err != nil {
-			time.Sleep(time.Duration(2) * time.Second)
-			(*browser).Close()
-			return nil, errors.Wrap(err, "Can not create page")
-		}
-		pageContext.Page = page
-
-		mutex.Lock()
-		account := instagram_fans.FindAccount(appContext.AccountDb, appContext.Config.AccountTable, appContext.MachineCode)
-		mutex.Unlock()
-
-		if account == nil {
-			log.Errorf("No account avaliable")
-			pageContext.Close()
-			return nil, errors.New("No account")
-		}
-		log.Printf("using account: %v", *account)
-		if err := instagram_fans.LogInToInstagram(account, page, appContext.Config.DelayConfig.DelayAfterLogin); err != nil {
-			log.Errorf("can not login to instagram, %v", err)
-			instagram_fans.MakeAccountStatus(appContext.AccountDb, appContext.Config.AccountTable, account, -1, appContext.MachineCode)
-			(*page).Close()
-			(*browser).Close()
-			continue
-		}
-		pageContext.Account = account
-		break
+	browser, err := instagram_fans.NewBrowser(appContext.Pw)
+	if err != nil {
+		return &pageContext, errors.Wrap(err, "Can not create browser!!!")
 	}
+	pageContext.Browser = browser
 
+	page, err := instagram_fans.NewPage(browser)
+	if err != nil {
+		return &pageContext, errors.Wrap(err, "Can not create page!!!")
+	}
+	pageContext.Page = page
+
+	log.Printf("using account: %v", *account)
+
+	if err := instagram_fans.LogInToInstagram(account, page); err != nil {
+		instagram_fans.MakeAccountStatus(appContext.AccountDb, appContext.Config.AccountTable, account, -1, appContext.MachineCode)
+		return &pageContext, errors.New("Can not login to instagram!!!")
+	}
+	pageContext.Account = account
+
+	time.Sleep(time.Duration(appContext.Config.DelayConfig.DelayAfterLogin) * time.Second)
 	return &pageContext, nil
 }
 
@@ -227,4 +212,31 @@ func computeAccountCount(appContext *instagram_fans.AppContext) int {
 
 	finalAccountCount := min(usableAccountCount, appContext.Config.AccountCount)
 	return finalAccountCount
+}
+
+func handleFetchErr(fetchErr error, appContext *instagram_fans.AppContext, pageContext *PageContext) int {
+	if errors.Is(fetchErr, instagram_fans.ErrUserInvalid) || errors.Is(fetchErr, instagram_fans.ErrUserUnusable) {
+		log.Errorf("enconter err need ChooseAccountAndLogin: %v, ChooseAccountAndLogin again", fetchErr)
+		if errors.Is(fetchErr, instagram_fans.ErrUserUnusable) {
+			instagram_fans.MakeAccountStatus(appContext.AccountDb, appContext.Config.AccountTable, pageContext.Account, -2, appContext.MachineCode)
+		} else {
+			instagram_fans.MakeAccountStatus(appContext.AccountDb, appContext.Config.AccountTable, pageContext.Account, -1, appContext.MachineCode)
+		}
+		pageContext.Close()
+		pageContext = nil
+		return StatusNeedAnotherAccount
+	}
+
+	if errors.Is(fetchErr, instagram_fans.ErrNeedLogin) {
+		log.Errorf("enconter err need relogin: %v, relogin again", fetchErr)
+		time.Sleep(time.Duration(5) * time.Second)
+		if err := instagram_fans.LogInToInstagram(pageContext.Account, pageContext.Page); err != nil {
+			pageContext.Close()
+			pageContext = nil
+			return StatusNeedAnotherAccount
+		}
+		log.Infof("relogin success, continue fetch data %v", *pageContext.Account)
+		time.Sleep(time.Duration(appContext.Config.DelayConfig.DelayAfterLogin) * time.Second)
+	}
+	return StatusCanRefetch
 }
