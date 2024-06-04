@@ -13,9 +13,10 @@ import (
 )
 
 var (
-	ErrUserInvalid  = errors.New("user is invalid")
-	ErrNeedLogin    = errors.New("need login")
-	ErrUserUnusable = errors.New("user is unusable")
+	ErrUserInvalid     = errors.New("user is invalid")
+	ErrNeedLogin       = errors.New("need login")
+	ErrUserUnusable    = errors.New("user is unusable")
+	ErrPageUnavailable = errors.New("page is unavailable")
 
 	PageFinishEleFound  = 1
 	PageFinishStateIdle = 2
@@ -187,6 +188,10 @@ func commonErrorHandle(page *playwright.Page) error {
 	content, err := (*page).Content()
 	if err != nil {
 		return ErrUserInvalid
+	}
+
+	if strings.Contains(content, "Sorry, this page isn't available.") {
+		return ErrPageUnavailable
 	}
 
 	if strings.Contains(content, "Page Not Found") || strings.Contains(content, "Page Not Found • Instagram") {

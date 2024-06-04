@@ -14,6 +14,7 @@ import (
 var (
 	StatusNeedAnotherAccount = 1 // StatusNeedAnotherAccount 需要重新选择另外一个账号登录
 	StatusCanRefetch         = 2 // StatusCanRefetch 重新登录成功，可以重新获取数据
+	StatusNext               = 3
 )
 
 type PageContext struct {
@@ -152,6 +153,8 @@ func UpdateUserInfo(userChannel <-chan *instagram_fans.User, appContext *instagr
 				goto ChooseAccountAndLogin
 			} else if status == StatusCanRefetch {
 				goto FetchData
+			} else if status == StatusNext {
+				continue
 			}
 		}
 
@@ -243,5 +246,10 @@ func handleFetchErr(fetchErr error, appContext *instagram_fans.AppContext, pageC
 		log.Infof("relogin success, continue fetch data %v", *pageContext.Account)
 		time.Sleep(time.Duration(appContext.Config.DelayConfig.DelayAfterLogin) * time.Second)
 	}
-	return StatusCanRefetch
+
+	if errors.Is(fetchErr, instagram_fans.ErrPageUnavailable) {
+		log.Errorf("page unavailable %v", fetchErr)
+		return StatusNext
+	}
+	return StatusNext
 }
