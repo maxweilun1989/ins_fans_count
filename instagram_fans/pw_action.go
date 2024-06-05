@@ -146,7 +146,8 @@ func GetFansCount(pageRef *playwright.Page, websiteUrl string) (int, error) {
 	if _, err := page.Goto(websiteUrl, playwright.PageGotoOptions{
 		Timeout: playwright.Float(float64(time.Second * PageTimeOut / time.Millisecond)),
 	}); err != nil {
-		log.Printf("Can not go to user page, %v", err)
+		log.Errorf("Can not go to user page, %v", err)
+		return -1, ErrUserInvalid
 	}
 
 	selector := `a:has-text("followers"), button:has-text("followers")`
