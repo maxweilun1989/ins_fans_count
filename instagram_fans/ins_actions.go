@@ -20,7 +20,7 @@ var (
 
 	PageTimeOut = time.Duration(20)
 
-	homeSelector          = "title:text('Home')"
+	homeSelector          = `svg[aria-label="Home"]`
 	dismissSelector       = `role=button >> text=Dismiss`
 	usernameInputSelector = "input[name='username']"
 	helpConfirmText       = "Help us confirm it"
@@ -165,14 +165,14 @@ func GetFansCount(pageRef *playwright.Page, websiteUrl string) (int, error) {
 	if _, err := page.Goto(websiteUrl, playwright.PageGotoOptions{
 		Timeout: playwright.Float(float64(time.Second * PageTimeOut / time.Millisecond)),
 	}); err != nil {
-		log.Errorf("Can not go to user page, %v", err)
+		log.Errorf("[GetFansCount] Can not go to user page, %v", err)
 		return -1, ErrUserInvalid
 	}
 
 	selector := `a:has-text("followers"), button:has-text("followers")`
 	_, err := page.WaitForSelector(selector)
 	if err != nil {
-		log.Errorf("can not wait for selector finished %v", err)
+		log.Errorf("[GetFansCount] can not wait for selector finished %v", err)
 		if errors.Is(err, playwright.ErrTimeout) {
 			return -2, commonErrorHandle(pageRef, false)
 		}
@@ -180,7 +180,8 @@ func GetFansCount(pageRef *playwright.Page, websiteUrl string) (int, error) {
 
 	elements, err := page.QuerySelectorAll(selector)
 	if err != nil {
-		log.Errorf("could not query selector: %v", err)
+		log.Errorf("[getFansCount] could not query selector: %v", err)
+		return -1, ErrUserUnusable
 	}
 
 	for _, element := range elements {
@@ -244,7 +245,7 @@ func commonErrorHandle(page *playwright.Page, isLogin bool) error {
 	return ErrUserInvalid
 }
 
-func GetStoriesLink(pageRef *playwright.Page, webSiteUrl string, account *Account) (string, error) {
+func GetStoriesLink(pageRef *playwright.Page, webSiteUrl string) (string, error) {
 	page := *pageRef
 	storiesLink := findStoriesLink(webSiteUrl)
 	if storiesLink == "" {

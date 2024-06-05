@@ -44,7 +44,7 @@ func UsableAccountCount(db *gorm.DB, table string) int {
 }
 
 func FindAccount(db *gorm.DB, table string, machineCode string) *Account {
-	var accounts []Account
+	var accounts []*Account
 	result := db.Table(table).Where("status = 0").Order("id ASC").Find(&accounts)
 	if result.Error != nil {
 		log.Errorf("Can not find account, %v", result.Error)
@@ -58,12 +58,12 @@ func FindAccount(db *gorm.DB, table string, machineCode string) *Account {
 	var account *Account
 	for _, cur := range accounts {
 		if cur.MachineCode == machineCode {
-			account = &cur
+			account = cur
 			break
 		}
 	}
 	if account == nil {
-		account = &accounts[0]
+		account = accounts[0]
 	}
 	return account
 }

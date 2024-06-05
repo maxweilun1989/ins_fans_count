@@ -38,6 +38,7 @@ func (p *PageContext) Close() {
 			return
 		}
 	}
+	log.Infof("Context is closed for account[%s]", p.Account.Username)
 	p.Account = nil
 }
 
@@ -193,7 +194,7 @@ func fetchBloggerData(appContext *instagram_fans.AppContext, pageContext *PageCo
 		user.FansCount = fansCount
 	}
 	if appContext.Config.ParseStoryLink {
-		storyLink, err := instagram_fans.GetStoriesLink(pageContext.Page, user.Url, pageContext.Account)
+		storyLink, err := instagram_fans.GetStoriesLink(pageContext.Page, user.Url)
 		if err != nil {
 			return err
 		}
@@ -217,9 +218,7 @@ func initPageContext(appContext *instagram_fans.AppContext, mutex *sync.Mutex) (
 
 		pageContext, err := getLoginPageContext(appContext, account)
 		if err != nil {
-			if pageContext != nil {
-				pageContext.Close()
-			}
+
 			log.Errorf("Can not get login in mark user(%s) to -1/-2 ", account.Username)
 			if errors.Is(err, instagram_fans.ErrUserUnusable) {
 				instagram_fans.MarkAccountStatus(appContext.AccountDb, appContext.Config.AccountTable, account, -2, appContext.MachineCode)
@@ -227,6 +226,9 @@ func initPageContext(appContext *instagram_fans.AppContext, mutex *sync.Mutex) (
 				instagram_fans.MarkAccountStatus(appContext.AccountDb, appContext.Config.AccountTable, account, -1, appContext.MachineCode)
 			}
 
+			if pageContext != nil {
+				pageContext.Close()
+			}
 			pageContext = nil
 			continue
 		}
@@ -274,7 +276,7 @@ func computeAccountCount(appContext *instagram_fans.AppContext) int {
 
 func handleFetchErr(fetchErr error, appContext *instagram_fans.AppContext, pageContext *PageContext) int {
 	if errors.Is(fetchErr, instagram_fans.ErrUserInvalid) || errors.Is(fetchErr, instagram_fans.ErrUserUnusable) {
-		log.Errorf("[handleFetchErr] enconter err need ChooseAccountAndLogin: %v, ChooseAccountAndLogin again", fetchErr)
+		log.Errorf("[handleFetchErr] enconter err need ChooseAccountAndLogin: %v, ChooseAccountAndLogin again, account [%v]", fetchErr, pageContext.Account)
 		if errors.Is(fetchErr, instagram_fans.ErrUserUnusable) {
 			instagram_fans.MarkAccountStatus(appContext.AccountDb, appContext.Config.AccountTable, pageContext.Account, -2, appContext.MachineCode)
 		} else {
