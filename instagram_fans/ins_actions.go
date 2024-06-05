@@ -20,29 +20,35 @@ var (
 
 	PageTimeOut = time.Duration(20)
 
+	helpConfirmText       = "Help us confirm it"
+	pageNotValidText      = "Sorry, this page isn't available."
 	homeSelector          = `svg[aria-label="Home"]`
 	dismissSelector       = `role=button >> text=Dismiss`
 	usernameInputSelector = "input[name='username']"
-	helpConfirmText       = "Help us confirm it"
+	followersSelector     = `a:has-text("followers"), button:has-text("followers")`
 )
 
 var suspicionsLoginCondition TextCondition
 var passwordIncorrectCondition TextCondition
 var helpConfirmCondition TextCondition
+var pageNotValidCondition TextCondition
 
 var homeCondition ElementCondition
 var dismissSelectorCondition ElementCondition
 var usernameInputCondition ElementCondition
+var followersCondition ElementCondition
 
 func init() {
 
 	suspicionsLoginCondition = TextCondition{Text: "Suspicious Login Attempt"}
 	passwordIncorrectCondition = TextCondition{Text: "your password was incorrect"}
 	helpConfirmCondition = TextCondition{Text: helpConfirmText}
+	pageNotValidCondition = TextCondition{Text: pageNotValidText}
 
 	homeCondition = ElementCondition{Selector: homeSelector}
 	dismissSelectorCondition = ElementCondition{Selector: dismissSelector}
 	usernameInputCondition = ElementCondition{Selector: usernameInputSelector}
+	followersCondition = ElementCondition{Selector: followersSelector}
 }
 
 func NewBrowser(pw *playwright.Playwright) (*playwright.Browser, error) {
@@ -162,87 +168,88 @@ func Login(account *Account, page *playwright.Page) error {
 
 func GetFansCount(pageRef *playwright.Page, websiteUrl string) (int, error) {
 	var page = *pageRef
-	if _, err := page.Goto(websiteUrl, playwright.PageGotoOptions{
-		Timeout: playwright.Float(float64(time.Second * PageTimeOut / time.Millisecond)),
-	}); err != nil {
-		log.Errorf("[GetFansCount] Can not go to user page, %v", err)
-		return -1, ErrUserInvalid
-	}
+	maxCount := 2
 
-	selector := `a:has-text("followers"), button:has-text("followers")`
-	_, err := page.WaitForSelector(selector)
-	if err != nil {
-		log.Errorf("[GetFansCount] can not wait for selector finished %v", err)
-		if errors.Is(err, playwright.ErrTimeout) {
-			return -2, commonErrorHandle(pageRef, false)
-		}
-	}
-
-	elements, err := page.QuerySelectorAll(selector)
-	if err != nil {
-		log.Errorf("[getFansCount] could not query selector: %v", err)
-		return -1, ErrUserUnusable
-	}
-
-	for _, element := range elements {
-		textContent, err := element.TextContent()
-		if err != nil {
-			log.Errorf("could not get text content: %v", err)
+	for i := 0; i < maxCount; i++ {
+		if _, err := page.Goto(websiteUrl, playwright.PageGotoOptions{
+			Timeout: playwright.Float(float64(time.Second * PageTimeOut / time.Millisecond)),
+		}); err != nil {
+			log.Errorf("[GetFansCount] Can not go to user page, %v", err)
+			return -1, ErrUserInvalid
 		}
 
-		parts := strings.Split(textContent, " ")
+		conditions := []Condition{
+			suspicionsLoginCondition,
+			helpConfirmCondition,
+			followersCondition,
+			dismissSelectorCondition,
+			pageNotValidCondition,
+		}
 
-		countStr := parts[0]
-
-		count, err := ParseFollowerCount(countStr)
+		fillCond, err := WaitForConditions(pageRef, conditions)
 		if err != nil {
-			log.Errorf("---- falied to convert %s to int(%v)", countStr, err)
+			log.Errorf("[GetFansCount] can not wait for selector finished %v", err)
+			if errors.Is(err, playwright.ErrTimeout) {
+				return -2, ErrUserInvalid
+			}
+		}
+
+		log.Infof("[GetFansCount] Condition %v", fillCond)
+
+		if fillCond == pageNotValidCondition {
+			return -2, ErrPageUnavailable
+		}
+
+		if fillCond == passwordIncorrectCondition || fillCond == suspicionsLoginCondition {
+			return -2, ErrUserInvalid
+		}
+
+		if fillCond == helpConfirmCondition {
+			return -2, ErrUserUnusable
+		}
+
+		if fillCond == followersCondition {
+			elements, err := page.QuerySelectorAll(followersSelector)
+			if err != nil {
+				log.Errorf("[getFansCount] could not query selector: %v", err)
+				return -2, ErrUserUnusable
+			}
+
+			for _, element := range elements {
+				textContent, err := element.TextContent()
+				if err != nil {
+					log.Errorf("could not get text content: %v", err)
+				}
+
+				parts := strings.Split(textContent, " ")
+
+				countStr := parts[0]
+
+				count, err := ParseFollowerCount(countStr)
+				if err != nil {
+					log.Errorf("---- falied to convert %s to int(%v)", countStr, err)
+					continue
+				}
+				return count, nil
+			}
+		}
+
+		if fillCond == dismissSelectorCondition {
+			dismissButton, err := page.QuerySelector(dismissSelector)
+			if err != nil {
+				log.Errorf("[GetFansCount] could not query selector: %v", err)
+				return -1, ErrUserUnusable
+			}
+			if err := dismissButton.Click(); err != nil {
+				log.Errorf("[GetFansCount] could not click dismiss button: %v", err)
+				return -1, ErrUserUnusable
+			}
+			time.Sleep(time.Duration(5) * time.Second)
 			continue
 		}
-		return count, nil
 	}
 
-	return -2, errors.Errorf("")
-}
-
-func commonErrorHandle(page *playwright.Page, isLogin bool) error {
-
-	siteUrl := (*page).URL()
-	if strings.Contains(siteUrl, "https://www.instagram.com/accounts/login/") {
-		if isLogin {
-			return ErrUserInvalid
-		}
-		return ErrNeedLogin
-	}
-
-	time.Sleep(time.Duration(5) * time.Second)
-
-	content, err := (*page).Content()
-	if err != nil {
-		return ErrUserInvalid
-	}
-
-	if strings.Contains(content, "Sorry, this page isn't available.") {
-		return ErrPageUnavailable
-	} else if strings.Contains(content, "Suspicious Login Attempt") {
-		return ErrUserInvalid
-	} else if strings.Contains(content, "your password was incorrect") {
-		return ErrUserUnusable
-	}
-
-	dismissSelector := `role=button >> text=Dismiss`
-	dismissButton, err := (*page).QuerySelector(dismissSelector)
-	if err != nil {
-		return ErrUserInvalid
-	}
-	if dismissButton != nil {
-		if err := dismissButton.Click(); err != nil {
-			return ErrUserInvalid
-		}
-		time.Sleep(time.Duration(5) * time.Second)
-		return nil
-	}
-	return ErrUserInvalid
+	return -2, errors.Errorf("No followers found")
 }
 
 func GetStoriesLink(pageRef *playwright.Page, webSiteUrl string) (string, error) {

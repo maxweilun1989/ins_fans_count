@@ -150,6 +150,7 @@ func UpdateUserInfo(appContext *instagram_fans.AppContext, mutex *sync.Mutex) er
 					time.Sleep(time.Duration(appContext.Config.DelayConfig.DelayAfterLogin) * time.Second)
 					goto FetchData
 				} else if status == StatusNext {
+					time.Sleep(time.Duration(appContext.Config.DelayConfig.DelayForNext) * time.Second)
 					continue
 				}
 			}
@@ -303,7 +304,7 @@ func handleFetchErr(fetchErr error, appContext *instagram_fans.AppContext, pageC
 	}
 
 	if errors.Is(fetchErr, instagram_fans.ErrPageUnavailable) {
-		log.Errorf("page unavailable %v", fetchErr)
+		log.Errorf("[handleFetchErr] page unavailable %v", fetchErr)
 		return StatusNext
 	}
 	return StatusNext
