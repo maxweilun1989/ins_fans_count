@@ -4,7 +4,7 @@
     "delay_for_next": 2
   },
   "accountCount": 2,
-  "count" : 5,
+  "count" : 100,
   "dsn": "root:19890919@tcp(127.0.0.1:3306)/instagram",
   "table": "user",
   "accountDsn": "root:19890919@tcp(127.0.0.1:3306)/instagram",
