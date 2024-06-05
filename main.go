@@ -4,6 +4,7 @@ import (
 	"github.com/charmbracelet/log"
 	"github.com/pkg/errors"
 	"github.com/playwright-community/playwright-go"
+	"gorm.io/gorm"
 	"instgram_fans/instagram_fans"
 	"sync"
 	"time"
@@ -25,10 +26,16 @@ type PageContext struct {
 
 func (p *PageContext) Close() {
 	if p.Page != nil {
-		(*p.Page).Close()
+		err := (*p.Page).Close()
+		if err != nil {
+			return
+		}
 	}
 	if p.Browser != nil {
-		(*p.Browser).Close()
+		err := (*p.Browser).Close()
+		if err != nil {
+			return
+		}
 	}
 	p.Account = nil
 }
@@ -43,48 +50,28 @@ func main() {
 	}
 	defer appContext.DestroyContext()
 
-	db := appContext.Db
-	config := appContext.Config
+	// 计算可以使用的账号
+	finalAccountCount := computeAccountCount(appContext)
+	if finalAccountCount == 0 {
+		log.Errorf("No account available, exit !!!!")
+		return
+	}
 
-	low := 0
-	for {
-		users, err := instagram_fans.FindUserEmptyData(db, config.Table, config.Count, low)
-		if err != nil {
-			log.Fatalf("Can not find user empty data, %v", err)
-			break
-		}
-		if len(users) == 0 {
-			log.Infof("Done ALL! no data need to handle")
-			break
-		}
-
-		// 计算可以使用的账号
-		finalAccountCount := computeAccountCount(appContext)
-		if finalAccountCount == 0 {
-			break
-		}
-
-		instagram_fans.MarkUserStatusIsWorking(users, db, config.Table)
-		if err := updateData(users, appContext, finalAccountCount); err != nil {
-			log.Errorf("Update data failed %v", err)
-			break
-		}
+	if err = updateData(appContext, finalAccountCount); err != nil {
+		log.Errorf("Update data failed %v", err)
+		return
 	}
 }
 
-func updateData(users []*instagram_fans.User, appContext *instagram_fans.AppContext, count int) error {
-
+func updateData(appContext *instagram_fans.AppContext, count int) error {
 	var wg sync.WaitGroup
-	var getAccountMutex sync.Mutex
-
-	// 准备好数据
-	userChannel := prepareUserChannel(users, count)
+	var markAccountMutex sync.Mutex
 
 	for i := 0; i < count; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			err := UpdateUserInfo(userChannel, appContext, &getAccountMutex)
+			err := UpdateUserInfo(appContext, &markAccountMutex)
 			if err != nil {
 				log.Errorf("Update user info failed %v\n", err)
 				return
@@ -95,77 +82,62 @@ func updateData(users []*instagram_fans.User, appContext *instagram_fans.AppCont
 	return nil
 }
 
-func UpdateUserInfo(userChannel <-chan *instagram_fans.User, appContext *instagram_fans.AppContext, mutex *sync.Mutex) error {
-	var pageContext *PageContext
-	var err error
+func UpdateUserInfo(appContext *instagram_fans.AppContext, mutex *sync.Mutex) error {
 
-	for user := range userChannel {
-		if user == nil {
+	low := 0
+	db := appContext.Db
+	config := appContext.Config
+
+	var pageContext *PageContext
+
+	for {
+		mutex.Lock()
+		users, err := fetchBloggerToHandle(db, config, low)
+		if err != nil {
+			log.Errorf("Can not find user empty data, %v", err)
+			mutex.Unlock()
+			return errors.Wrap(err, "Can not find user empty data")
+		}
+		mutex.Unlock()
+		if len(users) == 0 {
+			log.Infof("Done for this browser, no data to handle")
 			break
 		}
 
-	ChooseAccountAndLogin:
-		// 创建pageContext，找到一个可用的账号并登录成功
-		if pageContext == nil {
-			mutex.Lock()
-			account := instagram_fans.FindAccount(appContext.AccountDb, appContext.Config.AccountTable, appContext.MachineCode)
-			if account != nil {
-				instagram_fans.MarkAccountStatus(appContext.AccountDb, appContext.Config.AccountTable, account, 1, appContext.MachineCode)
-			}
-			mutex.Unlock()
+		log.Infof("find %d users for (%d ~ %d)!!!", len(users), users[0].Id, users[len(users)-1].Id)
+		low = users[len(users)-1].Id
 
-			if account == nil {
-				err = errors.New("No account available!!")
-				break
-			}
-
-			pageContext, err = getLoginPageContext(appContext, account)
-			if err != nil {
-				if pageContext != nil {
-					pageContext.Close()
+		for _, user := range users {
+		ChooseAccountAndLogin:
+			// 创建pageContext，找到一个可用的账号并登录成功
+			if pageContext == nil {
+				pageContext, err = initPageContext(appContext, mutex)
+				if err != nil {
+					log.Errorf("Can not init page context, %v", err)
+					return err
 				}
-				log.Errorf("Can not get login in mark user(%s) to -2 ", account.Username)
-				instagram_fans.MarkAccountStatus(appContext.AccountDb, appContext.Config.AccountTable, account, -1, appContext.MachineCode)
-				pageContext = nil
-				goto ChooseAccountAndLogin
 			}
-		}
-		log.Info("start to fetch data using account %s", pageContext.Account.Username)
+			log.Infof("start to fetch data using account %s", pageContext.Account.Username)
 
-	FetchData:
-		user.FansCount = -2
-		var fetchErr error
-		fetchErr = nil
+		FetchData:
+			fetchErr := fetchBloggerData(appContext, pageContext, user)
 
-		if appContext.Config.ParseFansCount {
-			fansCount, err := instagram_fans.GetFansCount(pageContext.Page, user.Url)
-			if err == nil {
-				user.FansCount = fansCount
+			if fetchErr != nil {
+				status := handleFetchErr(fetchErr, appContext, pageContext)
+				if status == StatusNeedAnotherAccount {
+					goto ChooseAccountAndLogin
+				} else if status == StatusCanRefetch {
+					time.Sleep(time.Duration(appContext.Config.DelayConfig.DelayAfterLogin) * time.Second)
+					goto FetchData
+				} else if status == StatusNext {
+					continue
+				}
 			}
-			fetchErr = err
-		}
-		if appContext.Config.ParseStoryLink {
-			storyLink, err := instagram_fans.GetStoriesLink(pageContext.Page, user.Url, pageContext.Account)
-			if err == nil {
-				user.StoryLink = storyLink
-			}
-			fetchErr = err
-		}
 
-		if fetchErr != nil {
-			status := handleFetchErr(fetchErr, appContext, pageContext)
-			if status == StatusNeedAnotherAccount {
-				goto ChooseAccountAndLogin
-			} else if status == StatusCanRefetch {
-				goto FetchData
-			} else if status == StatusNext {
-				continue
-			}
+			log.Infof("fans_count: %d, story_link: %s for %s", user.FansCount, user.StoryLink, user.Url)
+			instagram_fans.UpdateSingleDataToDb(user, appContext)
+			time.Sleep(time.Duration(appContext.Config.DelayConfig.DelayForNext) * time.Millisecond)
 		}
-
-		log.Infof("fans_count: %d, story_link: %s for %s", user.FansCount, user.StoryLink, user.Url)
-		instagram_fans.UpdateSingleDataToDb(user, appContext)
-		time.Sleep(time.Duration(appContext.Config.DelayConfig.DelayForNext) * time.Millisecond)
 	}
 
 	if pageContext != nil {
@@ -176,6 +148,69 @@ func UpdateUserInfo(userChannel <-chan *instagram_fans.User, appContext *instagr
 	}
 
 	return nil
+}
+
+func fetchBloggerToHandle(db *gorm.DB, config *instagram_fans.Config, low int) ([]*instagram_fans.User, error) {
+	users, err := instagram_fans.FindBloger(db, config.Table, config.Count, low)
+	if err != nil {
+		log.Errorf("Can not find user empty data, %v", err)
+		return nil, errors.Wrap(err, "Can not find user empty data")
+	}
+
+	if len(users) == 0 {
+		log.Infof("Done ALL! no data need to handle")
+		return users, nil
+	}
+	instagram_fans.MarkUserStatusIsWorking(users, db, config.Table)
+	return users, nil
+}
+
+func fetchBloggerData(appContext *instagram_fans.AppContext, pageContext *PageContext, user *instagram_fans.User) error {
+	var fetchErr error
+	user.FansCount = -2
+
+	if appContext.Config.ParseFansCount {
+		fansCount, err := instagram_fans.GetFansCount(pageContext.Page, user.Url)
+		if err == nil {
+			user.FansCount = fansCount
+		}
+		fetchErr = err
+	}
+	if appContext.Config.ParseStoryLink {
+		storyLink, err := instagram_fans.GetStoriesLink(pageContext.Page, user.Url, pageContext.Account)
+		if err == nil {
+			user.StoryLink = storyLink
+		}
+		fetchErr = err
+	}
+	return fetchErr
+}
+
+func initPageContext(appContext *instagram_fans.AppContext, mutex *sync.Mutex) (*PageContext, error) {
+	for {
+		mutex.Lock()
+		account := instagram_fans.FindAccount(appContext.AccountDb, appContext.Config.AccountTable, appContext.MachineCode)
+		if account != nil {
+			instagram_fans.MarkAccountStatus(appContext.AccountDb, appContext.Config.AccountTable, account, 1, appContext.MachineCode)
+		}
+		mutex.Unlock()
+
+		if account == nil {
+			return nil, errors.New("No account available!!")
+		}
+
+		pageContext, err := getLoginPageContext(appContext, account)
+		if err != nil {
+			if pageContext != nil {
+				pageContext.Close()
+			}
+			log.Errorf("Can not get login in mark user(%s) to -2 ", account.Username)
+			instagram_fans.MarkAccountStatus(appContext.AccountDb, appContext.Config.AccountTable, account, -1, appContext.MachineCode)
+			pageContext = nil
+			continue
+		}
+		return pageContext, nil
+	}
 }
 
 func getLoginPageContext(appContext *instagram_fans.AppContext, account *instagram_fans.Account) (*PageContext, error) {
@@ -203,17 +238,6 @@ func getLoginPageContext(appContext *instagram_fans.AppContext, account *instagr
 
 	time.Sleep(time.Duration(appContext.Config.DelayConfig.DelayAfterLogin) * time.Second)
 	return &pageContext, nil
-}
-
-func prepareUserChannel(users []*instagram_fans.User, finalAccountCount int) chan *instagram_fans.User {
-	userChannel := make(chan *instagram_fans.User, len(users)+finalAccountCount)
-	for i := 0; i < len(users); i++ {
-		userChannel <- users[i]
-	}
-	for i := 0; i < finalAccountCount; i++ {
-		userChannel <- nil
-	}
-	return userChannel
 }
 
 func computeAccountCount(appContext *instagram_fans.AppContext) int {
@@ -249,7 +273,7 @@ func handleFetchErr(fetchErr error, appContext *instagram_fans.AppContext, pageC
 			return StatusNeedAnotherAccount
 		}
 		log.Infof("[handleFetchErr] relogin success, continue fetch data %v", *pageContext.Account)
-		time.Sleep(time.Duration(appContext.Config.DelayConfig.DelayAfterLogin) * time.Second)
+		return StatusCanRefetch
 	}
 
 	if errors.Is(fetchErr, instagram_fans.ErrPageUnavailable) {

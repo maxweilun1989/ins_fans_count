@@ -83,7 +83,7 @@ func SetAccountMachineCode(db *gorm.DB, table string, account *Account, machineC
 	}
 }
 
-func FindUserEmptyData(db *gorm.DB, table string, limit int, low int) ([]*User, error) {
+func FindBloger(db *gorm.DB, table string, limit int, low int) ([]*User, error) {
 
 	var users []*User
 	db.Table(table).Where("fans_count = -1").Where("id > ?", low).Order("id ASC").Limit(limit).Find(&users)

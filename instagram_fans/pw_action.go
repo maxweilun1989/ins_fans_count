@@ -148,7 +148,7 @@ func GetFansCount(pageRef *playwright.Page, websiteUrl string) (int, error) {
 	if err != nil {
 		log.Errorf("can not wait for selector finished %v", err)
 		if errors.Is(err, playwright.ErrTimeout) {
-			return -1, commonErrorHandle(pageRef)
+			return -2, commonErrorHandle(pageRef)
 		}
 	}
 
@@ -175,7 +175,7 @@ func GetFansCount(pageRef *playwright.Page, websiteUrl string) (int, error) {
 		return count, nil
 	}
 
-	return -1, errors.Errorf("")
+	return -2, errors.Errorf("")
 }
 
 func commonErrorHandle(page *playwright.Page) error {
