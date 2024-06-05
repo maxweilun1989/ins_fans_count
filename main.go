@@ -3,6 +3,7 @@ package main
 import (
 	"github.com/charmbracelet/log"
 	"github.com/emirpasic/gods/sets/treeset"
+	"github.com/petermattis/goid"
 	"github.com/pkg/errors"
 	"github.com/playwright-community/playwright-go"
 	"gorm.io/gorm"
@@ -23,6 +24,7 @@ type PageContext struct {
 	Browser *playwright.Browser
 	Page    *playwright.Page
 	Account *instagram_fans.Account
+	goId    int64
 }
 
 func (p *PageContext) Close() {
@@ -38,7 +40,7 @@ func (p *PageContext) Close() {
 			return
 		}
 	}
-	log.Infof("Context is closed for account[%s]", p.Account.Username)
+	log.Infof("[%d] Context is closed for account[%s]", p.goId, p.Account.Username)
 	p.Account = nil
 }
 
@@ -91,7 +93,6 @@ func UpdateUserInfo(appContext *instagram_fans.AppContext, mutex *sync.Mutex) er
 	config := appContext.Config
 
 	var pageContext *PageContext
-
 	set := treeset.NewWithIntComparator()
 
 	for {
@@ -119,6 +120,7 @@ func UpdateUserInfo(appContext *instagram_fans.AppContext, mutex *sync.Mutex) er
 		for _, user := range users {
 		ChooseAccountAndLogin:
 			// 创建pageContext，找到一个可用的账号并登录成功
+			log.Infof("ChooseAccountAndLogin, context(%v)", pageContext)
 			if pageContext == nil {
 				pageContext, err = initPageContext(appContext, mutex)
 				if err != nil {
@@ -141,6 +143,7 @@ func UpdateUserInfo(appContext *instagram_fans.AppContext, mutex *sync.Mutex) er
 			if fetchErr != nil {
 				status := handleFetchErr(fetchErr, appContext, pageContext)
 				if status == StatusNeedAnotherAccount {
+					pageContext = nil
 					goto ChooseAccountAndLogin
 				} else if status == StatusCanRefetch {
 					time.Sleep(time.Duration(appContext.Config.DelayConfig.DelayAfterLogin) * time.Second)
@@ -151,7 +154,7 @@ func UpdateUserInfo(appContext *instagram_fans.AppContext, mutex *sync.Mutex) er
 			}
 
 			set.Remove(user.Id)
-			log.Infof("fans_count: %d, story_link: %s for %s", user.FansCount, user.StoryLink, user.Url)
+			log.Infof("[%d] fans_count: %d, story_link: %s for %s", pageContext.goId, user.FansCount, user.StoryLink, user.Url)
 			instagram_fans.UpdateSingleDataToDb(user, appContext)
 			time.Sleep(time.Duration(appContext.Config.DelayConfig.DelayForNext) * time.Millisecond)
 		}
@@ -232,6 +235,7 @@ func initPageContext(appContext *instagram_fans.AppContext, mutex *sync.Mutex) (
 			pageContext = nil
 			continue
 		}
+		pageContext.goId = goid.Get()
 		return pageContext, nil
 	}
 }
@@ -259,7 +263,6 @@ func getLoginPageContext(appContext *instagram_fans.AppContext, account *instagr
 	}
 	pageContext.Account = account
 
-	time.Sleep(time.Duration(appContext.Config.DelayConfig.DelayAfterLogin) * time.Second)
 	return &pageContext, nil
 }
 
@@ -276,7 +279,7 @@ func computeAccountCount(appContext *instagram_fans.AppContext) int {
 
 func handleFetchErr(fetchErr error, appContext *instagram_fans.AppContext, pageContext *PageContext) int {
 	if errors.Is(fetchErr, instagram_fans.ErrUserInvalid) || errors.Is(fetchErr, instagram_fans.ErrUserUnusable) {
-		log.Errorf("[handleFetchErr] enconter err need ChooseAccountAndLogin: %v, ChooseAccountAndLogin again, account [%v]", fetchErr, pageContext.Account)
+		log.Errorf("[handleFetchErr] [%d] enconter err need ChooseAccountAndLogin: %v, ChooseAccountAndLogin again, account [%v]", pageContext.goId, fetchErr, pageContext.Account)
 		if errors.Is(fetchErr, instagram_fans.ErrUserUnusable) {
 			instagram_fans.MarkAccountStatus(appContext.AccountDb, appContext.Config.AccountTable, pageContext.Account, -2, appContext.MachineCode)
 		} else {
