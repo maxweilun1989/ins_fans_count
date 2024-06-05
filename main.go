@@ -132,6 +132,7 @@ func UpdateUserInfo(appContext *instagram_fans.AppContext, mutex *sync.Mutex) er
 						log.Errorf("Some users are not handled(%d ~ %d)", begin, end)
 						instagram_fans.MarkUserStatusIdle(begin, end, db, config.Table)
 					}
+					pageContext = nil
 					return err
 				}
 				log.Infof("start to fetch data using account %s (%d - %d)", pageContext.Account.Username, users[0].Id, users[len(users)-1].Id)
@@ -221,7 +222,6 @@ func initPageContext(appContext *instagram_fans.AppContext, mutex *sync.Mutex) (
 
 		pageContext, err := getLoginPageContext(appContext, account)
 		if err != nil {
-
 			log.Errorf("Can not get login in mark user(%s) to -1/-2 ", account.Username)
 			if errors.Is(err, instagram_fans.ErrUserUnusable) {
 				instagram_fans.MarkAccountStatus(appContext.AccountDb, appContext.Config.AccountTable, account, -2, appContext.MachineCode)
@@ -242,6 +242,8 @@ func initPageContext(appContext *instagram_fans.AppContext, mutex *sync.Mutex) (
 
 func getLoginPageContext(appContext *instagram_fans.AppContext, account *instagram_fans.Account) (*PageContext, error) {
 	var pageContext PageContext
+	pageContext.goId = goid.Get()
+	pageContext.Account = account
 
 	browser, err := instagram_fans.NewBrowser(appContext.Pw)
 	if err != nil {
@@ -258,10 +260,9 @@ func getLoginPageContext(appContext *instagram_fans.AppContext, account *instagr
 	log.Printf("using account: %v", *account)
 
 	if err := instagram_fans.LogInToInstagram(account, page); err != nil {
-		log.Errorf("---> getLoginPage Can not login to instagram!!! %v", err)
+		log.Errorf("[%d] getLoginPage Can not login to instagram!!! %v", pageContext.goId, err)
 		return &pageContext, err
 	}
-	pageContext.Account = account
 
 	return &pageContext, nil
 }
