@@ -8,12 +8,12 @@
       <jdbc-url>jdbc:mysql://localhost:3306</jdbc-url>
       <working-dir>$ProjectFileDir$</working-dir>
     </data-source>
-    <data-source source="LOCAL" name="story_link@18.231.107.228" read-only="true" uuid="a14f6e01-2f97-4e99-958a-0422043823e6">
+    <data-source source="LOCAL" name="@192.168.31.96" uuid="52469461-d765-40b1-8c86-0c2ed1f6ddef">
       <driver-ref>mysql.8</driver-ref>
       <synchronize>true</synchronize>
-      <remarks>story_link</remarks>
+      <remarks>docker datasource</remarks>
       <jdbc-driver>com.mysql.cj.jdbc.Driver</jdbc-driver>
-      <jdbc-url>jdbc:mysql://18.231.107.228:3306/story_link</jdbc-url>
+      <jdbc-url>jdbc:mysql://192.168.31.96:3306</jdbc-url>
       <working-dir>$ProjectFileDir$</working-dir>
     </data-source>
   </component>
