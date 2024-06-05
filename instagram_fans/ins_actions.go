@@ -20,6 +20,7 @@ var (
 
 	PageTimeOut = time.Duration(20)
 
+	httpErrorText         = "HTTP ERROR"
 	suspendAccountText    = "We suspended your account"
 	helpConfirmText       = "Help us confirm it"
 	pageNotValidText      = "Sorry, this page isn't available."
@@ -30,6 +31,7 @@ var (
 	bodySelector          = "body"
 )
 
+var httpErrorCondition TextCondition
 var suspendedAccountCondition TextCondition
 var suspicionsLoginCondition TextCondition
 var passwordIncorrectCondition TextCondition
@@ -43,6 +45,7 @@ var followersCondition ElementCondition
 var bodyElementCondition ElementCondition
 
 func init() {
+	httpErrorCondition = TextCondition{Text: httpErrorText}
 	suspendedAccountCondition = TextCondition{Text: suspendAccountText}
 	suspicionsLoginCondition = TextCondition{Text: "Suspicious Login Attempt"}
 	passwordIncorrectCondition = TextCondition{Text: "your password was incorrect"}
@@ -122,6 +125,7 @@ func Login(account *Account, page *playwright.Page) error {
 
 		cond, err := WaitForConditions(page,
 			[]Condition{passwordIncorrectCondition,
+				httpErrorCondition,
 				suspendedAccountCondition,
 				suspicionsLoginCondition,
 				dismissSelectorCondition,
@@ -141,7 +145,8 @@ func Login(account *Account, page *playwright.Page) error {
 
 		if cond == passwordIncorrectCondition ||
 			cond == suspicionsLoginCondition ||
-			cond == suspendedAccountCondition {
+			cond == suspendedAccountCondition ||
+			cond == httpErrorCondition {
 			return ErrUserInvalid
 		}
 
@@ -188,6 +193,7 @@ func GetFansCount(pageRef *playwright.Page, websiteUrl string) (int, error) {
 
 		conditions := []Condition{
 			suspicionsLoginCondition,
+			httpErrorCondition,
 			suspendedAccountCondition,
 			helpConfirmCondition,
 			followersCondition,
@@ -210,7 +216,10 @@ func GetFansCount(pageRef *playwright.Page, websiteUrl string) (int, error) {
 			return -2, ErrPageUnavailable
 		}
 
-		if fillCond == passwordIncorrectCondition || fillCond == suspicionsLoginCondition || fillCond == suspendedAccountCondition {
+		if fillCond == passwordIncorrectCondition ||
+			fillCond == suspicionsLoginCondition ||
+			fillCond == suspendedAccountCondition ||
+			fillCond == httpErrorCondition {
 			return -2, ErrUserInvalid
 		}
 
@@ -286,6 +295,7 @@ func GetStoriesLink(pageRef *playwright.Page, webSiteUrl string) (string, error)
 		conditions := []Condition{
 			bodyElementCondition,
 			suspendedAccountCondition,
+			httpErrorCondition,
 			passwordIncorrectCondition,
 			suspicionsLoginCondition,
 			helpConfirmCondition,
@@ -334,7 +344,10 @@ func GetStoriesLink(pageRef *playwright.Page, webSiteUrl string) (string, error)
 			return "", ErrPageUnavailable
 		}
 
-		if fillCond == passwordIncorrectCondition || fillCond == suspicionsLoginCondition || fillCond == suspendedAccountCondition {
+		if fillCond == passwordIncorrectCondition ||
+			fillCond == suspicionsLoginCondition ||
+			fillCond == suspendedAccountCondition ||
+			fillCond == httpErrorCondition {
 			return "", ErrUserInvalid
 		}
 
