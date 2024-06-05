@@ -18,11 +18,32 @@ var (
 	ErrUserUnusable    = errors.New("user is unusable")
 	ErrPageUnavailable = errors.New("page is unavailable")
 
-	PageFinishEleFound  = 1
-	PageFinishStateIdle = 2
-
 	PageTimeOut = time.Duration(20)
+
+	homeSelector          = "title:text('Home')"
+	dismissSelector       = `role=button >> text=Dismiss`
+	usernameInputSelector = "input[name='username']"
+	helpConfirmText       = "Help us confirm it"
 )
+
+var suspicionsLoginCondition TextCondition
+var passwordIncorrectCondition TextCondition
+var helpConfirmCondition TextCondition
+
+var homeCondition ElementCondition
+var dismissSelectorCondition ElementCondition
+var usernameInputCondition ElementCondition
+
+func init() {
+
+	suspicionsLoginCondition = TextCondition{Text: "Suspicious Login Attempt"}
+	passwordIncorrectCondition = TextCondition{Text: "your password was incorrect"}
+	helpConfirmCondition = TextCondition{Text: helpConfirmText}
+
+	homeCondition = ElementCondition{Selector: homeSelector}
+	dismissSelectorCondition = ElementCondition{Selector: dismissSelector}
+	usernameInputCondition = ElementCondition{Selector: usernameInputSelector}
+}
 
 func NewBrowser(pw *playwright.Playwright) (*playwright.Browser, error) {
 	browser, err := pw.Chromium.Launch(playwright.BrowserTypeLaunchOptions{
@@ -68,74 +89,72 @@ func Login(account *Account, page *playwright.Page) error {
 	for i := 0; i < maxLoginCount; i++ {
 		inputName := "input[name='username']"
 		if err := (*page).Fill(inputName, account.Username); err != nil {
-			log.Errorf("Can not fill username, %v", err)
+			log.Errorf("[Login] Can not fill username, %v", err)
 			return ErrUserInvalid
 		}
 		time.Sleep(1 * time.Second)
 
 		inputPass := "input[name='password']"
 		if err := (*page).Fill(inputPass, account.Password); err != nil {
-			log.Errorf("Can not fill password, %v", err)
+			log.Errorf("[Login] Can not fill password, %v", err)
 			return ErrUserInvalid
 		}
 		time.Sleep(1 * time.Second)
 
 		submitBtn := "button[type='submit']"
 		if err := (*page).Click(submitBtn); err != nil {
-			log.Errorf("Can not click submit btn, %v", err)
+			log.Errorf("[Login] Can not click submit btn, %v", err)
 			return ErrUserInvalid
 		}
 
-		err := (*page).WaitForLoadState(playwright.PageWaitForLoadStateOptions{
-			State: playwright.LoadStateNetworkidle,
-		})
-		if err != nil {
-			log.Errorf("Can not wait for load state, %v", err)
-			return ErrUserInvalid
-		}
+		time.Sleep(10 * time.Second)
 
-		time.Sleep(time.Duration(5) * time.Second)
-
-		pageContent, err := (*page).Content()
-		if err != nil {
-			log.Errorf("Can not get page content, %v", err)
-			return ErrUserInvalid
-		}
-
-		targetText := "Suspicious Login Attempt"
-		if strings.Contains(pageContent, targetText) {
-			log.Errorf("[%s] Suspicious Login Attempt found! ", account.Username)
-			return ErrUserInvalid
-		} else if strings.Contains(pageContent, "your password was incorrect") {
-			log.Errorf("[%s] your password was incorrect", account.Username)
-			return ErrUserInvalid
-		}
-
-		dismissSelector := `role=button >> text=Dismiss`
-		dismissButton, err := (*page).QuerySelector(dismissSelector)
+		cond, err := WaitForConditions(page,
+			[]Condition{passwordIncorrectCondition,
+				suspicionsLoginCondition,
+				dismissSelectorCondition,
+				usernameInputCondition,
+				helpConfirmCondition,
+				homeCondition,
+			})
 		if err != nil {
 			return ErrUserInvalid
 		}
-		if dismissButton != nil {
-			if err := dismissButton.Click(); err != nil {
-				return ErrUserInvalid
-			}
-			time.Sleep(time.Duration(5) * time.Second)
+
+		log.Infof("[Login] account[%s] Condition %v", account.Username, cond)
+
+		if cond == homeCondition {
 			return nil
 		}
 
-		inputEle, err := (*page).QuerySelector(inputName)
-		if err != nil {
+		if cond == passwordIncorrectCondition || cond == suspicionsLoginCondition {
 			return ErrUserInvalid
 		}
 
-		if inputEle != nil {
+		if cond == helpConfirmCondition {
+			return ErrUserUnusable
+		}
+
+		if cond == dismissSelectorCondition {
+			dismissButton, err := (*page).QuerySelector(dismissSelector)
+			if err != nil {
+				return ErrUserInvalid
+			}
+			if dismissButton != nil {
+				if err := dismissButton.Click(); err != nil {
+					return ErrUserInvalid
+				}
+				time.Sleep(time.Duration(5) * time.Second)
+				return nil
+			}
+		}
+
+		if cond == usernameInputCondition {
 			if i == maxLoginCount-1 {
 				return ErrUserInvalid
 			}
 			continue
 		}
-
 		break
 	}
 	return nil

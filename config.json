@@ -7,8 +7,8 @@
   "count" : 5,
   "dsn": "root:19890919@tcp(127.0.0.1:3306)/instagram",
   "table": "user",
-  "accountDsn": "story_link:pR7H90zPbW71Zz1@tcp(18.231.107.228:3306)/story_link",
-  "accountTable": "ins_usr",
+  "accountDsn": "root:19890919@tcp(127.0.0.1:3306)/instagram",
+  "accountTable": "users",
   "parseFansCount": true,
   "parseStoryLink": true,
 

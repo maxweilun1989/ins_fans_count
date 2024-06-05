@@ -220,8 +220,13 @@ func initPageContext(appContext *instagram_fans.AppContext, mutex *sync.Mutex) (
 			if pageContext != nil {
 				pageContext.Close()
 			}
-			log.Errorf("Can not get login in mark user(%s) to -1 ", account.Username)
-			instagram_fans.MarkAccountStatus(appContext.AccountDb, appContext.Config.AccountTable, account, -1, appContext.MachineCode)
+			log.Errorf("Can not get login in mark user(%s) to -1/-2 ", account.Username)
+			if errors.Is(err, instagram_fans.ErrUserUnusable) {
+				instagram_fans.MarkAccountStatus(appContext.AccountDb, appContext.Config.AccountTable, account, -2, appContext.MachineCode)
+			} else {
+				instagram_fans.MarkAccountStatus(appContext.AccountDb, appContext.Config.AccountTable, account, -1, appContext.MachineCode)
+			}
+
 			pageContext = nil
 			continue
 		}
@@ -248,7 +253,7 @@ func getLoginPageContext(appContext *instagram_fans.AppContext, account *instagr
 
 	if err := instagram_fans.LogInToInstagram(account, page); err != nil {
 		log.Errorf("---> getLoginPage Can not login to instagram!!! %v", err)
-		return &pageContext, errors.New("Can not login to instagram!!!")
+		return &pageContext, err
 	}
 	pageContext.Account = account
 
