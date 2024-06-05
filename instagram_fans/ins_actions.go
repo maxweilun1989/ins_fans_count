@@ -26,6 +26,7 @@ var (
 	dismissSelector       = `role=button >> text=Dismiss`
 	usernameInputSelector = "input[name='username']"
 	followersSelector     = `a:has-text("followers"), button:has-text("followers")`
+	bodySelector          = "body"
 )
 
 var suspicionsLoginCondition TextCondition
@@ -37,6 +38,7 @@ var homeCondition ElementCondition
 var dismissSelectorCondition ElementCondition
 var usernameInputCondition ElementCondition
 var followersCondition ElementCondition
+var bodyElementCondition ElementCondition
 
 func init() {
 
@@ -49,6 +51,7 @@ func init() {
 	dismissSelectorCondition = ElementCondition{Selector: dismissSelector}
 	usernameInputCondition = ElementCondition{Selector: usernameInputSelector}
 	followersCondition = ElementCondition{Selector: followersSelector}
+	bodyElementCondition = ElementCondition{Selector: bodySelector}
 }
 
 func NewBrowser(pw *playwright.Playwright) (*playwright.Browser, error) {
@@ -183,6 +186,7 @@ func GetFansCount(pageRef *playwright.Page, websiteUrl string) (int, error) {
 			helpConfirmCondition,
 			followersCondition,
 			dismissSelectorCondition,
+			usernameInputCondition,
 			pageNotValidCondition,
 		}
 
@@ -206,6 +210,10 @@ func GetFansCount(pageRef *playwright.Page, websiteUrl string) (int, error) {
 
 		if fillCond == helpConfirmCondition {
 			return -2, ErrUserUnusable
+		}
+
+		if fillCond == usernameInputCondition {
+			return -2, ErrNeedLogin
 		}
 
 		if fillCond == followersCondition {
@@ -254,40 +262,85 @@ func GetFansCount(pageRef *playwright.Page, websiteUrl string) (int, error) {
 
 func GetStoriesLink(pageRef *playwright.Page, webSiteUrl string) (string, error) {
 	page := *pageRef
+
 	storiesLink := findStoriesLink(webSiteUrl)
 	if storiesLink == "" {
 		return "", nil
 	}
 
-	if _, err := page.Goto(storiesLink, playwright.PageGotoOptions{
-		Timeout: playwright.Float(float64(time.Second * PageTimeOut / time.Millisecond)),
-	}); err != nil {
-		log.Printf("Can not go to stories page, %v", err)
-		return "", nil
-	}
+	maxCount := 2
+	for i := 0; i < maxCount; i++ {
+		if _, err := page.Goto(storiesLink, playwright.PageGotoOptions{
+			Timeout: playwright.Float(float64(time.Second * PageTimeOut / time.Millisecond)),
+		}); err != nil {
+			log.Printf("Can not go to stories page, %v", err)
+			return "", nil
+		}
 
-	if _, err := page.WaitForSelector("body"); err != nil {
-		log.Printf("wait for body show failed: %v", err)
-	}
+		conditions := []Condition{
+			bodyElementCondition,
+			passwordIncorrectCondition,
+			suspicionsLoginCondition,
+			helpConfirmCondition,
+			dismissSelectorCondition,
+			pageNotValidCondition,
+			usernameInputCondition,
+		}
 
-	newUrl := page.URL()
+		fillCond, err := WaitForConditions(pageRef, conditions)
+		log.Infof("[GetStoriesLink] Condition %v, err %v", fillCond, err)
 
-	if strings.Contains(newUrl, "https://www.instagram.com/accounts/login/") {
-		return "", ErrNeedLogin
-	}
+		if err != nil {
+			return "", ErrUserInvalid
+		}
 
-	content, err := page.Content()
-	if err != nil {
-		log.Printf("Can not read content, %v", err)
-		return "", err
-	}
+		if fillCond == bodyElementCondition {
+			content, err := page.Content()
+			if err != nil {
+				log.Printf("[GetStoriesLink] Can not read content, %v", err)
+				return "", err
+			}
 
-	lines := strings.Split(content, "\n")
-	result := parseStoryLikes(lines)
-	if len(result) == 0 {
-		return "", err
+			lines := strings.Split(content, "\n")
+			result := parseStoryLikes(lines)
+			if len(result) == 0 {
+				return "", err
+			}
+			return strings.Join(result, ","), nil
+		}
+
+		if fillCond == dismissSelectorCondition {
+			dismissButton, err := page.QuerySelector(dismissSelector)
+			if err != nil {
+				log.Errorf("[GetStoriesLink] could not query selector: %v", err)
+				return "", ErrUserUnusable
+			}
+			if err := dismissButton.Click(); err != nil {
+				log.Errorf("[GetStoriesLink] could not click dismiss button: %v", err)
+				return "", ErrUserUnusable
+			}
+			time.Sleep(time.Duration(5) * time.Second)
+			continue
+		}
+
+		if fillCond == pageNotValidCondition {
+			return "", ErrPageUnavailable
+		}
+
+		if fillCond == passwordIncorrectCondition || fillCond == suspicionsLoginCondition {
+			return "", ErrUserInvalid
+		}
+
+		if fillCond == helpConfirmCondition {
+			return "", ErrUserUnusable
+		}
+
+		if fillCond == usernameInputCondition {
+			return "", ErrNeedLogin
+		}
+
 	}
-	return strings.Join(result, ","), nil
+	return "", errors.Errorf("No stories found")
 }
 
 func parseStoryLikes(lines []string) []string {
