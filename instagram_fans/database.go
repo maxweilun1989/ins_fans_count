@@ -68,7 +68,8 @@ func FindAccount(db *gorm.DB, table string, machineCode string) *Account {
 	return account
 }
 
-func MakeAccountStatus(db *gorm.DB, table string, account *Account, status int, machineCode string) {
+func MarkAccountStatus(db *gorm.DB, table string, account *Account, status int, machineCode string) {
+	log.Infof("MarkAccountStatus %s to %d", account.Username, status)
 	result := db.Table(table).Where("user = ?", account.Username).Updates(map[string]interface{}{"status": status, "Machine_code": machineCode})
 	if result.Error != nil {
 		log.Errorf("Can not update account status, %v", result.Error)
