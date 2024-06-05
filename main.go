@@ -2,6 +2,7 @@ package main
 
 import (
 	"github.com/charmbracelet/log"
+	"github.com/emirpasic/gods/sets/treeset"
 	"github.com/pkg/errors"
 	"github.com/playwright-community/playwright-go"
 	"gorm.io/gorm"
@@ -90,6 +91,8 @@ func UpdateUserInfo(appContext *instagram_fans.AppContext, mutex *sync.Mutex) er
 
 	var pageContext *PageContext
 
+	set := treeset.NewWithIntComparator()
+
 	for {
 		mutex.Lock()
 		users, err := fetchBloggerToHandle(db, config, low)
@@ -106,6 +109,11 @@ func UpdateUserInfo(appContext *instagram_fans.AppContext, mutex *sync.Mutex) er
 
 		log.Infof("find %d users for (%d ~ %d)!!!", len(users), users[0].Id, users[len(users)-1].Id)
 		low = users[len(users)-1].Id
+
+		set.Clear()
+		for _, user := range users {
+			set.Add(user.Id)
+		}
 
 		for _, user := range users {
 		ChooseAccountAndLogin:
@@ -134,10 +142,19 @@ func UpdateUserInfo(appContext *instagram_fans.AppContext, mutex *sync.Mutex) er
 				}
 			}
 
+			set.Remove(user.Id)
 			log.Infof("fans_count: %d, story_link: %s for %s", user.FansCount, user.StoryLink, user.Url)
 			instagram_fans.UpdateSingleDataToDb(user, appContext)
 			time.Sleep(time.Duration(appContext.Config.DelayConfig.DelayForNext) * time.Millisecond)
 		}
+	}
+
+	if !set.Empty() {
+		values := set.Values()
+		begin := values[0].(int)
+		end := values[len(values)-1].(int)
+		log.Errorf("Some users are not handled(%d ~ %d)", begin, end)
+		instagram_fans.MarkUserStatusIdle(begin, end, db, config.Table)
 	}
 
 	if pageContext != nil {

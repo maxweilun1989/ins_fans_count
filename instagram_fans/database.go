@@ -100,6 +100,14 @@ func MarkUserStatusIsWorking(users []*User, db *gorm.DB, table string) {
 		Updates(map[string]interface{}{"fans_count": -2})
 }
 
+func MarkUserStatusIdle(begin, end int, db *gorm.DB, table string) {
+	log.Infof("revoke status to -1 , from %d to %d", begin, end)
+	db.Table(table).
+		Where("id >= ? and id <= ?", begin, end).
+		Where("fans_count = -2").
+		Updates(map[string]interface{}{"fans_count": -1})
+}
+
 func UpdateSingleDataToDb(user *User, appContext *AppContext) {
 	if !appContext.Config.ParseFansCount && !appContext.Config.ParseStoryLink {
 		log.Errorf("No parseFansCount and parseStoryLink found in config")
