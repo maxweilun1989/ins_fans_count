@@ -122,10 +122,17 @@ func UpdateUserInfo(appContext *instagram_fans.AppContext, mutex *sync.Mutex) er
 				pageContext, err = initPageContext(appContext, mutex)
 				if err != nil {
 					log.Errorf("Can not init page context, %v", err)
+					if !set.Empty() {
+						values := set.Values()
+						begin := values[0].(int)
+						end := values[len(values)-1].(int)
+						log.Errorf("Some users are not handled(%d ~ %d)", begin, end)
+						instagram_fans.MarkUserStatusIdle(begin, end, db, config.Table)
+					}
 					return err
 				}
+				log.Infof("start to fetch data using account %s (%d - %d)", pageContext.Account.Username, users[0].Id, users[len(users)-1].Id)
 			}
-			log.Infof("start to fetch data using account %s", pageContext.Account.Username)
 
 		FetchData:
 			fetchErr := fetchBloggerData(appContext, pageContext, user)
@@ -147,14 +154,6 @@ func UpdateUserInfo(appContext *instagram_fans.AppContext, mutex *sync.Mutex) er
 			instagram_fans.UpdateSingleDataToDb(user, appContext)
 			time.Sleep(time.Duration(appContext.Config.DelayConfig.DelayForNext) * time.Millisecond)
 		}
-	}
-
-	if !set.Empty() {
-		values := set.Values()
-		begin := values[0].(int)
-		end := values[len(values)-1].(int)
-		log.Errorf("Some users are not handled(%d ~ %d)", begin, end)
-		instagram_fans.MarkUserStatusIdle(begin, end, db, config.Table)
 	}
 
 	if pageContext != nil {
@@ -183,24 +182,24 @@ func fetchBloggerToHandle(db *gorm.DB, config *instagram_fans.Config, low int) (
 }
 
 func fetchBloggerData(appContext *instagram_fans.AppContext, pageContext *PageContext, user *instagram_fans.User) error {
-	var fetchErr error
 	user.FansCount = -2
 
 	if appContext.Config.ParseFansCount {
 		fansCount, err := instagram_fans.GetFansCount(pageContext.Page, user.Url)
-		if err == nil {
-			user.FansCount = fansCount
+		if err != nil {
+			return err
 		}
-		fetchErr = err
+
+		user.FansCount = fansCount
 	}
 	if appContext.Config.ParseStoryLink {
 		storyLink, err := instagram_fans.GetStoriesLink(pageContext.Page, user.Url, pageContext.Account)
-		if err == nil {
-			user.StoryLink = storyLink
+		if err != nil {
+			return err
 		}
-		fetchErr = err
+		user.StoryLink = storyLink
 	}
-	return fetchErr
+	return nil
 }
 
 func initPageContext(appContext *instagram_fans.AppContext, mutex *sync.Mutex) (*PageContext, error) {
@@ -221,7 +220,7 @@ func initPageContext(appContext *instagram_fans.AppContext, mutex *sync.Mutex) (
 			if pageContext != nil {
 				pageContext.Close()
 			}
-			log.Errorf("Can not get login in mark user(%s) to -2 ", account.Username)
+			log.Errorf("Can not get login in mark user(%s) to -1 ", account.Username)
 			instagram_fans.MarkAccountStatus(appContext.AccountDb, appContext.Config.AccountTable, account, -1, appContext.MachineCode)
 			pageContext = nil
 			continue
@@ -282,8 +281,7 @@ func handleFetchErr(fetchErr error, appContext *instagram_fans.AppContext, pageC
 	}
 
 	if errors.Is(fetchErr, instagram_fans.ErrNeedLogin) {
-		log.Errorf("[handleFetchErr] enconter err need relogin: %v, relogin again", fetchErr)
-		time.Sleep(time.Duration(5) * time.Second)
+		log.Errorf("[handleFetchErr] %s enconter err need relogin: %v, relogin again", pageContext.Account.Username, fetchErr)
 		if err := instagram_fans.LogInToInstagram(pageContext.Account, pageContext.Page); err != nil {
 			pageContext.Close()
 			pageContext = nil

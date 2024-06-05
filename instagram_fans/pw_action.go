@@ -64,7 +64,8 @@ func LogInToInstagram(account *Account, page *playwright.Page) error {
 }
 
 func Login(account *Account, page *playwright.Page) error {
-	for i := 0; i < 2; i++ {
+	maxLoginCount := 2
+	for i := 0; i < maxLoginCount; i++ {
 		inputName := "input[name='username']"
 		if err := (*page).Fill(inputName, account.Username); err != nil {
 			log.Errorf("Can not fill username, %v", err)
@@ -103,10 +104,10 @@ func Login(account *Account, page *playwright.Page) error {
 
 		targetText := "Suspicious Login Attempt"
 		if strings.Contains(pageContent, targetText) {
-			log.Errorf("[%v] Suspicious Login Attempt found! ", *account)
+			log.Errorf("[%s] Suspicious Login Attempt found! ", account.Username)
 			return ErrUserInvalid
 		} else if strings.Contains(pageContent, "your password was incorrect") {
-			log.Errorf("[%v] your password was incorrect", *account)
+			log.Errorf("[%s] your password was incorrect", account.Username)
 			return ErrUserInvalid
 		}
 
@@ -127,9 +128,14 @@ func Login(account *Account, page *playwright.Page) error {
 		if err != nil {
 			return ErrUserInvalid
 		}
+
 		if inputEle != nil {
+			if i == maxLoginCount-1 {
+				return ErrUserInvalid
+			}
 			continue
 		}
+
 		break
 	}
 	return nil
@@ -148,7 +154,7 @@ func GetFansCount(pageRef *playwright.Page, websiteUrl string) (int, error) {
 	if err != nil {
 		log.Errorf("can not wait for selector finished %v", err)
 		if errors.Is(err, playwright.ErrTimeout) {
-			return -2, commonErrorHandle(pageRef)
+			return -2, commonErrorHandle(pageRef, false)
 		}
 	}
 
@@ -178,10 +184,13 @@ func GetFansCount(pageRef *playwright.Page, websiteUrl string) (int, error) {
 	return -2, errors.Errorf("")
 }
 
-func commonErrorHandle(page *playwright.Page) error {
+func commonErrorHandle(page *playwright.Page, isLogin bool) error {
 
 	siteUrl := (*page).URL()
 	if strings.Contains(siteUrl, "https://www.instagram.com/accounts/login/") {
+		if isLogin {
+			return ErrUserInvalid
+		}
 		return ErrNeedLogin
 	}
 
