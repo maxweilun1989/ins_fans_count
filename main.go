@@ -54,6 +54,7 @@ func main() {
 	}
 	defer appContext.DestroyContext()
 
+	instagram_fans.MakAccountUsable(appContext.AccountDb, appContext.Config.AccountTable, appContext.MachineCode)
 	// 计算可以使用的账号
 	finalAccountCount := computeAccountCount(appContext)
 	if finalAccountCount == 0 {
@@ -218,6 +219,7 @@ func initPageContext(appContext *instagram_fans.AppContext, mutex *sync.Mutex) (
 		mutex.Unlock()
 
 		if account == nil {
+			instagram_fans.MakAccountUsable(appContext.AccountDb, appContext.Config.AccountTable, appContext.MachineCode)
 			return nil, errors.New("No account available!!")
 		}
 

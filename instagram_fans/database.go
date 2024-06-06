@@ -5,6 +5,7 @@ import (
 	"github.com/charmbracelet/log"
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
+	"math/rand"
 	"os"
 )
 
@@ -43,6 +44,13 @@ func UsableAccountCount(db *gorm.DB, table string) int {
 	return int(count)
 }
 
+func MakAccountUsable(db *gorm.DB, table string, machineCode string) {
+	result := db.Table(table).Where("Machine_code = ?", machineCode).Where("status = ?", 1).Updates(map[string]interface{}{"status": 0})
+	if result.Error != nil {
+		log.Errorf("Can not update account status, %v", result.Error)
+	}
+}
+
 func FindAccount(db *gorm.DB, table string, machineCode string) *Account {
 	var accounts []*Account
 	result := db.Table(table).Where("status = 0").Order("id ASC").Find(&accounts)
@@ -63,7 +71,8 @@ func FindAccount(db *gorm.DB, table string, machineCode string) *Account {
 		}
 	}
 	if account == nil {
-		account = accounts[0]
+		index := rand.Intn(len(accounts))
+		account = accounts[index]
 	}
 	return account
 }
