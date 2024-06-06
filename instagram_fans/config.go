@@ -17,6 +17,7 @@ type Config struct {
 	Dsn            string      `json:"dsn"`
 	Table          string      `json:"table"`
 	Count          int         `json:"count"`
+	MaxCount       int         `json:"maxCount"`
 	AccountDSN     string      `json:"accountDsn"`
 	AccountTable   string      `json:"accountTable"`
 	ParseFansCount bool        `json:"parseFansCount"`

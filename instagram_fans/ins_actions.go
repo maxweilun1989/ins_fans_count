@@ -18,7 +18,7 @@ var (
 	ErrUserUnusable    = errors.New("user is unusable")
 	ErrPageUnavailable = errors.New("page is unavailable")
 
-	PageTimeOut = time.Duration(20)
+	PageTimeOut = time.Duration(60)
 
 	httpErrorText         = "HTTP ERROR"
 	suspendAccountText    = "We suspended your account"

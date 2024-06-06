@@ -95,6 +95,7 @@ func UpdateUserInfo(appContext *instagram_fans.AppContext, mutex *sync.Mutex) er
 
 	var pageContext *PageContext
 	set := treeset.NewWithIntComparator()
+	count := 0
 
 	for {
 		mutex.Lock()
@@ -159,7 +160,18 @@ func UpdateUserInfo(appContext *instagram_fans.AppContext, mutex *sync.Mutex) er
 			set.Remove(user.Id)
 			log.Infof("[%d] fans_count: %d, story_link: %s for %s", pageContext.goId, user.FansCount, user.StoryLink, user.Url)
 			instagram_fans.UpdateSingleDataToDb(user, appContext)
+
 			time.Sleep(time.Duration(appContext.Config.DelayConfig.DelayForNext) * time.Millisecond)
+
+			count++
+			log.Infof("count[%s] handle %d blogger", pageContext.Account.Username, count)
+
+			if count >= config.MaxCount {
+				pageContext.Close()
+				pageContext = nil
+				count = 0
+				goto ChooseAccountAndLogin
+			}
 		}
 	}
 
