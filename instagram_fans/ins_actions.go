@@ -34,6 +34,8 @@ var (
 
 	similarBloggerButton = `svg[aria-label="Similar accounts"]`
 	seeAllButton         = `a:has-text("See all"), button:has-text("See all")`
+	suggestedFriends     = `div > div >h1:has-text("Suggested for you")`
+	linkRole             = "role=link"
 )
 
 var httpErrorCondition TextCondition
@@ -51,6 +53,7 @@ var bodyElementCondition ElementCondition
 
 var similarBloggerButtonSelector ElementCondition
 var seeAllButtonSelector ElementCondition
+var suggestedFriendsCondition ElementCondition
 
 func init() {
 	httpErrorCondition = TextCondition{Text: httpErrorText}
@@ -68,6 +71,7 @@ func init() {
 
 	similarBloggerButtonSelector = ElementCondition{Selector: similarBloggerButton}
 	seeAllButtonSelector = ElementCondition{Selector: seeAllButton}
+	suggestedFriendsCondition = ElementCondition{Selector: suggestedFriends}
 }
 
 func NewBrowser(pw *playwright.Playwright) (*playwright.Browser, error) {
@@ -238,7 +242,7 @@ func GetStoriesLink(pageRef *playwright.Page, webSiteUrl string, username string
 	return "", errors.Errorf("No stories found")
 }
 
-func FetchSimilarBloggers(pageRef *playwright.Page, webSiteUrl string, username string) ([]string, error) {
+func FetchSimilarBloggers(pageRef *playwright.Page, webSiteUrl string, username string) (string, error) {
 
 	tag := "similar_blogger"
 	maxCount := 2
@@ -246,12 +250,12 @@ func FetchSimilarBloggers(pageRef *playwright.Page, webSiteUrl string, username 
 		_, err := (*pageRef).Goto(webSiteUrl)
 		if err != nil {
 			log.Errorf("[FetchSimlarBlogger] Can not go to user page, %v", err)
-			return nil, err
+			return "", err
 		}
 
 		fillCond, err := clickButton(pageRef, similarBloggerButtonSelector, i, maxCount, username, tag)
 		if err != nil {
-			return nil, err
+			return "", err
 		}
 
 		if fillCond == nil {
@@ -262,7 +266,7 @@ func FetchSimilarBloggers(pageRef *playwright.Page, webSiteUrl string, username 
 		fillCond, err = clickButton(pageRef, seeAllButtonSelector, i, maxCount, username, tag)
 
 		if err != nil {
-			return nil, err
+			return "", err
 		}
 
 		if fillCond == nil {
@@ -270,8 +274,50 @@ func FetchSimilarBloggers(pageRef *playwright.Page, webSiteUrl string, username 
 		}
 		time.Sleep(time.Duration(1) * time.Second)
 
+		fillCond, err = CommonHandleCondition(pageRef, suggestedFriendsCondition, i, maxCount, username, tag)
+		if err != nil {
+			return "", err
+		}
+
+		if fillCond == nil {
+			continue
+		}
+
+		element, err := (*pageRef).QuerySelector(suggestedFriendsCondition.Selector)
+		if err != nil {
+			return "", err
+		}
+
+		dialogElement, err := element.QuerySelector("xpath=../..")
+		if err != nil {
+			return "", err
+		}
+
+		links, err := dialogElement.QuerySelectorAll(linkRole)
+		if err != nil {
+			return "", err
+		}
+		set := make(map[string]struct{})
+		for _, link := range links {
+			href, err := link.GetAttribute("href")
+			if err != nil {
+				continue
+			}
+			href = strings.TrimRight(strings.TrimLeft(href, "/"), "/")
+			set[href] = struct{}{}
+		}
+
+		arr := make([]string, len(set))
+		idx := 0
+		for k := range set {
+			arr[idx] = k
+			idx += 1
+		}
+		result := strings.Join(arr, ",")
+		log.Infof("[FetchSimlarBlogger] Found similar bloggers: %s ", result)
+		return result, nil
 	}
-	return nil, nil
+	return "", nil
 }
 
 func clickButton(pageRef *playwright.Page, testCond ElementCondition, curIdx int, maxCount int, username string, tag string) (Condition, error) {

@@ -187,7 +187,7 @@ func UpdateUserInfo(appContext *instagram_fans.AppContext, mutex *sync.Mutex) er
 	return nil
 }
 
-func fetchSimilarBloggersData(context *instagram_fans.AppContext, pageContext *PageContext, user *instagram_fans.UserSimilarFriends) ([]string, error) {
+func fetchSimilarBloggersData(context *instagram_fans.AppContext, pageContext *PageContext, user *instagram_fans.UserSimilarFriends) (string, error) {
 	return instagram_fans.FetchSimilarBloggers(pageContext.Page, user.OwnerUrl, pageContext.Account.Username)
 }
 
