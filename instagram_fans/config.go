@@ -12,17 +12,18 @@ type DelayConfig struct {
 }
 
 type Config struct {
-	AccountCount   int         `json:"accountCount"`
-	DelayConfig    DelayConfig `json:"delay_config"`
-	Dsn            string      `json:"dsn"`
-	Table          string      `json:"table"`
-	Count          int         `json:"count"`
-	MaxCount       int         `json:"maxCount"`
-	AccountDSN     string      `json:"accountDsn"`
-	AccountTable   string      `json:"accountTable"`
-	ParseFansCount bool        `json:"parseFansCount"`
-	ParseStoryLink bool        `json:"parseStoryLink"`
-	ShowBrowser    bool        `json:"showBrowser"`
+	AccountCount     int         `json:"accountCount"`
+	DelayConfig      DelayConfig `json:"delay_config"`
+	Dsn              string      `json:"dsn"`
+	Table            string      `json:"table"`
+	SimilarUserTable string      `json:"similarUserTable"`
+	Count            int         `json:"count"`
+	MaxCount         int         `json:"maxCount"`
+	AccountDSN       string      `json:"accountDsn"`
+	AccountTable     string      `json:"accountTable"`
+	ParseFansCount   bool        `json:"parseFansCount"`
+	ParseStoryLink   bool        `json:"parseStoryLink"`
+	ShowBrowser      bool        `json:"showBrowser"`
 }
 
 func ParseConfig(filePath string) *Config {

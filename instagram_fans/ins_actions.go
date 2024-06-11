@@ -18,6 +18,7 @@ var (
 	ErrUserUnusable    = errors.New("user is unusable")
 	ErrPageUnavailable = errors.New("page is unavailable")
 	ErrPageTimeout     = errors.New("page timeout")
+	ErrPageNoEleFound  = errors.New("no element found")
 
 	PageTimeOut = time.Duration(60)
 
@@ -30,6 +31,8 @@ var (
 	usernameInputSelector = "input[name='username']"
 	followersSelector     = `a:has-text("followers"), button:has-text("followers")`
 	bodySelector          = "body"
+
+	similarBloggerButton = `svg[aria-label="Similar accounts"]`
 )
 
 var httpErrorCondition TextCondition
@@ -45,6 +48,8 @@ var usernameInputCondition ElementCondition
 var followersCondition ElementCondition
 var bodyElementCondition ElementCondition
 
+var similarBloggerButtonSelector ElementCondition
+
 func init() {
 	httpErrorCondition = TextCondition{Text: httpErrorText}
 	suspendedAccountCondition = TextCondition{Text: suspendAccountText}
@@ -58,6 +63,8 @@ func init() {
 	usernameInputCondition = ElementCondition{Selector: usernameInputSelector}
 	followersCondition = ElementCondition{Selector: followersSelector}
 	bodyElementCondition = ElementCondition{Selector: bodySelector}
+
+	similarBloggerButtonSelector = ElementCondition{Selector: similarBloggerButton}
 }
 
 func NewBrowser(pw *playwright.Playwright) (*playwright.Browser, error) {
@@ -226,6 +233,47 @@ func GetStoriesLink(pageRef *playwright.Page, webSiteUrl string, username string
 		}
 	}
 	return "", errors.Errorf("No stories found")
+}
+
+func FetchSimilarBloggers(pageRef *playwright.Page, webSiteUrl string) ([]string, error) {
+
+	maxCount := 2
+	for i := 0; i < maxCount; i++ {
+		_, err := (*pageRef).Goto(webSiteUrl)
+		if err != nil {
+			log.Errorf("[FetchSimlarBlogger] Can not go to user page, %v", err)
+			return nil, err
+		}
+
+		fillCond, err := CommonHandleCondition(pageRef, similarBloggerButtonSelector, i, maxCount, "", "similar_blogger")
+
+		if err != nil {
+			return nil, nil
+		}
+
+		if fillCond == nil {
+			continue
+		}
+
+		if fillCond == similarBloggerButtonSelector {
+			selector, err := (*pageRef).QuerySelector(similarBloggerButtonSelector.Selector)
+			if err == nil || selector == nil {
+				log.Errorf("[FetchSimlarBlogger] Can not find similar blogger button, %v, selecotr: %v", err, selector)
+				return nil, ErrPageNoEleFound
+			}
+
+			err = selector.Click()
+			if err != nil {
+				log.Errorf("[FetchSimlarBlogger] Can notClick similar blogger button, %v", err)
+				return nil, err
+			}
+		}
+	}
+	return nil, nil
+}
+
+func ClickSimilarFansButton(page *playwright.Page) {
+
 }
 
 func CommonHandleCondition(page *playwright.Page, testCond Condition, curIdx int, maxCount int, userName string, tag string) (Condition, error) {

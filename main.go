@@ -99,7 +99,7 @@ func UpdateUserInfo(appContext *instagram_fans.AppContext, mutex *sync.Mutex) er
 
 	for {
 		mutex.Lock()
-		users, err := fetchBloggerToHandle(db, config, low)
+		users, err := fetchBloggerForSimilarFriends(db, config, low)
 		if err != nil {
 			log.Errorf("Can not find user empty data, %v", err)
 			mutex.Unlock()
@@ -141,7 +141,9 @@ func UpdateUserInfo(appContext *instagram_fans.AppContext, mutex *sync.Mutex) er
 			}
 
 		FetchData:
-			fetchErr := fetchBloggerData(appContext, pageContext, user)
+
+			//fetchErr := fetchBloggerData(appContext, pageContext, user)
+			_, fetchErr := fetchSimilarBloggersData(appContext, pageContext, user)
 
 			if fetchErr != nil {
 				status := handleFetchErr(fetchErr, appContext, pageContext)
@@ -158,8 +160,8 @@ func UpdateUserInfo(appContext *instagram_fans.AppContext, mutex *sync.Mutex) er
 			}
 
 			set.Remove(user.Id)
-			log.Infof("[%d] fans_count: %d, story_link: %s for %s", pageContext.goId, user.FansCount, user.StoryLink, user.Url)
-			instagram_fans.UpdateSingleDataToDb(user, appContext)
+			//log.Infof("[%d] fans_count: %d, story_link: %s for %s", pageContext.goId, user.FansCount, user.StoryLink, user.Url)
+			//instagram_fans.UpdateSingleFansCountDataToDb(user, appContext)
 
 			time.Sleep(time.Duration(appContext.Config.DelayConfig.DelayForNext) * time.Millisecond)
 
@@ -185,8 +187,12 @@ func UpdateUserInfo(appContext *instagram_fans.AppContext, mutex *sync.Mutex) er
 	return nil
 }
 
+func fetchSimilarBloggersData(context *instagram_fans.AppContext, pageContext *PageContext, user *instagram_fans.UserSimilarFriends) ([]string, error) {
+	return instagram_fans.FetchSimilarBloggers(pageContext.Page, user.OwnerUrl)
+}
+
 func fetchBloggerToHandle(db *gorm.DB, config *instagram_fans.Config, low int) ([]*instagram_fans.User, error) {
-	users, err := instagram_fans.FindBloger(db, config.Table, config.Count, low)
+	users, err := instagram_fans.FindBlogger(db, config.Table, config.Count, low)
 	if err != nil {
 		log.Errorf("Can not find user empty data, %v", err)
 		return nil, errors.Wrap(err, "Can not find user empty data")
@@ -197,6 +203,22 @@ func fetchBloggerToHandle(db *gorm.DB, config *instagram_fans.Config, low int) (
 		return users, nil
 	}
 	instagram_fans.MarkUserStatusIsWorking(users, db, config.Table)
+	return users, nil
+}
+
+func fetchBloggerForSimilarFriends(db *gorm.DB, config *instagram_fans.Config, low int) ([]*instagram_fans.UserSimilarFriends, error) {
+	var table = config.SimilarUserTable
+	users, err := instagram_fans.FindBloggerForSimilar(db, table, config.Count, low)
+	if err != nil {
+		log.Errorf("Can not find user empty data, %v", err)
+		return nil, errors.Wrap(err, "Can not find user empty data")
+	}
+
+	if len(users) == 0 {
+		log.Infof("Done ALL! no data need to handle")
+		return users, nil
+	}
+	instagram_fans.MarkUserStatusIsWorkingForSimilar(users, db, table)
 	return users, nil
 }
 

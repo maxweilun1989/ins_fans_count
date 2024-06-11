@@ -92,10 +92,15 @@ func SetAccountMachineCode(db *gorm.DB, table string, account *Account, machineC
 	}
 }
 
-func FindBloger(db *gorm.DB, table string, limit int, low int) ([]*User, error) {
-
+func FindBlogger(db *gorm.DB, table string, limit int, low int) ([]*User, error) {
 	var users []*User
 	db.Table(table).Where("fans_count = -1").Where("id > ?", low).Order("id ASC").Limit(limit).Find(&users)
+	return users, nil
+}
+
+func FindBloggerForSimilar(db *gorm.DB, table string, limit int, low int) ([]*UserSimilarFriends, error) {
+	var users []*UserSimilarFriends
+	db.Table(table).Where("status = 0").Where("id > ?", low).Order("id ASC").Limit(limit).Find(&users)
 	return users, nil
 }
 
@@ -109,6 +114,16 @@ func MarkUserStatusIsWorking(users []*User, db *gorm.DB, table string) {
 		Updates(map[string]interface{}{"fans_count": -2})
 }
 
+func MarkUserStatusIsWorkingForSimilar(users []*UserSimilarFriends, db *gorm.DB, table string) {
+	begin := users[0].Id
+	end := users[len(users)-1].Id
+	log.Infof("[MarkUser] has %d to handle, from %d to %d", len(users), begin, end)
+	db.Table(table).
+		Where("id >= ? and id <= ?", begin, end).
+		Where("status = 0").
+		Updates(map[string]interface{}{"status": 1})
+}
+
 func MarkUserStatusIdle(begin, end int, db *gorm.DB, table string) {
 	log.Infof("revoke status to -1 , from %d to %d", begin, end)
 	db.Table(table).
@@ -117,7 +132,7 @@ func MarkUserStatusIdle(begin, end int, db *gorm.DB, table string) {
 		Updates(map[string]interface{}{"fans_count": -1})
 }
 
-func UpdateSingleDataToDb(user *User, appContext *AppContext) {
+func UpdateSingleFansCountDataToDb(user *User, appContext *AppContext) {
 	if !appContext.Config.ParseFansCount && !appContext.Config.ParseStoryLink {
 		log.Errorf("No parseFansCount and parseStoryLink found in config")
 		return

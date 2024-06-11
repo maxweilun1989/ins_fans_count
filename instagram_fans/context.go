@@ -30,27 +30,51 @@ func InitContext() (*AppContext, error) {
 		return nil, ErrorParseConfig
 	}
 
+	similarUserTableName = config.SimilarUserTable
+
 	machineCode, err := GetOrGenerateUUID("uuid.txt")
 	if err != nil {
 		return nil, ErrorGenerateUUID
 	}
-	log.Infof("Machine code: %s", machineCode)
+	log.Infof("[InitContext] Machine code: %s", machineCode)
 
 	db, err := ConnectToDB(config.Dsn)
 	if err != nil {
 		return nil, ErrorConnectDB
 	}
-	log.Infof("Connect to db(%s) success", config.Dsn)
+	log.Infof("[InitContext] Connect to db(%s) success", config.Dsn)
 
 	accountDb, err := ConnectToDB(config.AccountDSN)
 	if err != nil {
 		return nil, ErrorConnectAccountDB
 	}
-	log.Infof("Connect to account db(%s) success", config.AccountDSN)
+	log.Infof("[InitContext] Connect to account db(%s) success", config.AccountDSN)
 
 	pw, err := playwright.Run()
 	if err != nil {
 		return nil, ErrorPlayWrightStart
+	}
+
+	if !db.Migrator().HasTable(&UserSimilarFriends{}) {
+		err := db.Migrator().CreateTable(&UserSimilarFriends{})
+		if err != nil {
+			log.Fatalf("[InitContext] Can not create table, %v", err)
+		}
+	}
+
+	log.Infof("[InitContext] user friends table: %s", similarUserTableName)
+
+	var count int64
+	db.Table(similarUserTableName).Count(&count)
+	if count == 0 {
+		log.Infof("[InitContext] No data in table %s, start insert:", similarUserTableName)
+		sql := `INSERT INTO ` + similarUserTableName + ` (owner_url) SELECT url FROM ` + config.Table
+
+		result := db.Exec(sql)
+		if result.Error != nil {
+			log.Fatalf("[InitContext] Can not insert data to table %s, %v", similarUserTableName, result.Error)
+		}
+		log.Infof("[InitContext] Insert data to table %s success", similarUserTableName)
 	}
 
 	appContext := AppContext{Pw: pw, Db: db, AccountDb: accountDb, Config: config, MachineCode: machineCode}

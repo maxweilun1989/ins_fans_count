@@ -8,6 +8,7 @@
   "maxCount" : 10,
   "dsn": "root:19890919@tcp(127.0.0.1:3306)/instagram",
   "table": "user",
+  "similarUserTable" : "similar_user",
   "accountDsn": "root:19890919@tcp(127.0.0.1:3306)/instagram",
   "accountTable": "users",
   "parseFansCount": true,
