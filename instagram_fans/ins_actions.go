@@ -1,6 +1,7 @@
 package instagram_fans
 
 import (
+	"errors"
 	"github.com/charmbracelet/log"
 	"github.com/pkg/errors"
 	"github.com/playwright-community/playwright-go"
@@ -31,6 +32,7 @@ var (
 	usernameInputSelector = "input[name='username']"
 	followersSelector     = `a:has-text("followers"), button:has-text("followers")`
 	bodySelector          = "body"
+	logInSelector         = `a:has-text("Log In"), button:has-text("Log In")`
 
 	similarBloggerButton = `svg[aria-label="Similar accounts"]`
 	seeAllButton         = `a:has-text("See all"), button:has-text("See all")`
@@ -54,6 +56,7 @@ var bodyElementCondition ElementCondition
 var similarBloggerButtonSelector ElementCondition
 var seeAllButtonSelector ElementCondition
 var suggestedFriendsCondition ElementCondition
+var loginCondition ElementCondition
 
 func init() {
 	httpErrorCondition = TextCondition{Text: httpErrorText}
@@ -72,6 +75,7 @@ func init() {
 	similarBloggerButtonSelector = ElementCondition{Selector: similarBloggerButton}
 	seeAllButtonSelector = ElementCondition{Selector: seeAllButton}
 	suggestedFriendsCondition = ElementCondition{Selector: suggestedFriends}
+	loginCondition = ElementCondition{Selector: logInSelector}
 }
 
 func NewBrowser(pw *playwright.Playwright) (*playwright.Browser, error) {
@@ -138,7 +142,7 @@ func Login(account *Account, page *playwright.Page) error {
 
 		time.Sleep(10 * time.Second)
 
-		cond, err := CommonHandleCondition(page, homeCondition, i, maxLoginCount, account.Username, "login")
+		cond, err := CommonHandleCondition(page, homeCondition, i, maxLoginCount, account, "login")
 		log.Infof("[Login] account[%s] Condition %v, err: %v", account.Username, cond, err)
 
 		if err != nil {
@@ -153,7 +157,7 @@ func Login(account *Account, page *playwright.Page) error {
 	return nil
 }
 
-func GetFansCount(pageRef *playwright.Page, websiteUrl string, username string) (int, error) {
+func GetFansCount(pageRef *playwright.Page, websiteUrl string, account *Account) (int, error) {
 	var page = *pageRef
 	maxCount := 2
 
@@ -165,7 +169,7 @@ func GetFansCount(pageRef *playwright.Page, websiteUrl string, username string) 
 			return -1, ErrUserInvalid
 		}
 
-		fillCond, err := CommonHandleCondition(pageRef, followersCondition, i, maxCount, username, "fans_count")
+		fillCond, err := CommonHandleCondition(pageRef, followersCondition, i, maxCount, account, "fans_count")
 
 		if err != nil {
 			return -2, err
@@ -201,7 +205,7 @@ func GetFansCount(pageRef *playwright.Page, websiteUrl string, username string) 
 	return -2, errors.Errorf("No followers found")
 }
 
-func GetStoriesLink(pageRef *playwright.Page, webSiteUrl string, username string) (string, error) {
+func GetStoriesLink(pageRef *playwright.Page, webSiteUrl string, account *Account) (string, error) {
 	page := *pageRef
 
 	storiesLink := findStoriesLink(webSiteUrl)
@@ -218,7 +222,7 @@ func GetStoriesLink(pageRef *playwright.Page, webSiteUrl string, username string
 			return "", nil
 		}
 
-		fillCond, err := CommonHandleCondition(pageRef, bodyElementCondition, i, maxCount, username, "story_link")
+		fillCond, err := CommonHandleCondition(pageRef, bodyElementCondition, i, maxCount, account, "story_link")
 		log.Infof("[GetStoriesLink] Condition %v, err %v", fillCond, err)
 		if err != nil {
 			return "", ErrUserInvalid
@@ -242,20 +246,22 @@ func GetStoriesLink(pageRef *playwright.Page, webSiteUrl string, username string
 	return "", errors.Errorf("No stories found")
 }
 
-func FetchSimilarBloggers(pageRef *playwright.Page, webSiteUrl string, username string) (string, error) {
-
+func FetchSimilarBloggers(pageRef *playwright.Page, webSiteUrl string, account *Account, user *UserSimilarFriends) error {
 	tag := "similar_blogger"
 	maxCount := 2
 	for i := 0; i < maxCount; i++ {
 		_, err := (*pageRef).Goto(webSiteUrl)
 		if err != nil {
 			log.Errorf("[FetchSimlarBlogger] Can not go to user page, %v", err)
-			return "", err
+			return err
 		}
 
-		fillCond, err := clickButton(pageRef, similarBloggerButtonSelector, i, maxCount, username, tag)
+		fillCond, err := clickButton(pageRef, similarBloggerButtonSelector, i, maxCount, account, tag)
 		if err != nil {
-			return "", err
+			if errors.Is(err, playwright.ErrTimeout) {
+				user.Status = 404
+			}
+			return err
 		}
 
 		if fillCond == nil {
@@ -263,10 +269,13 @@ func FetchSimilarBloggers(pageRef *playwright.Page, webSiteUrl string, username 
 		}
 		time.Sleep(time.Duration(1) * time.Second)
 
-		fillCond, err = clickButton(pageRef, seeAllButtonSelector, i, maxCount, username, tag)
+		fillCond, err = clickButton(pageRef, seeAllButtonSelector, i, maxCount, account, tag)
 
 		if err != nil {
-			return "", err
+			if errors.Is(err, playwright.ErrTimeout) {
+				user.Status = 404
+			}
+			return err
 		}
 
 		if fillCond == nil {
@@ -274,9 +283,9 @@ func FetchSimilarBloggers(pageRef *playwright.Page, webSiteUrl string, username 
 		}
 		time.Sleep(time.Duration(1) * time.Second)
 
-		fillCond, err = CommonHandleCondition(pageRef, suggestedFriendsCondition, i, maxCount, username, tag)
+		fillCond, err = CommonHandleCondition(pageRef, suggestedFriendsCondition, i, maxCount, account, tag)
 		if err != nil {
-			return "", err
+			return err
 		}
 
 		if fillCond == nil {
@@ -285,17 +294,17 @@ func FetchSimilarBloggers(pageRef *playwright.Page, webSiteUrl string, username 
 
 		element, err := (*pageRef).QuerySelector(suggestedFriendsCondition.Selector)
 		if err != nil {
-			return "", err
+			return err
 		}
 
 		dialogElement, err := element.QuerySelector("xpath=../..")
 		if err != nil {
-			return "", err
+			return err
 		}
 
 		links, err := dialogElement.QuerySelectorAll(linkRole)
 		if err != nil {
-			return "", err
+			return err
 		}
 		set := make(map[string]struct{})
 		for _, link := range links {
@@ -313,15 +322,17 @@ func FetchSimilarBloggers(pageRef *playwright.Page, webSiteUrl string, username 
 			arr[idx] = k
 			idx += 1
 		}
-		result := strings.Join(arr, ",")
-		log.Infof("[FetchSimlarBlogger] Found similar bloggers: %s ", result)
-		return result, nil
+		user.SimilarFriends = strings.Join(arr, ",")
+		log.Infof("[FetchSimlarBlogger] Found similar bloggers: %s ", user.SimilarFriends)
+		user.Status = 200
+		return nil
 	}
-	return "", nil
+	user.Status = 404
+	return nil
 }
 
-func clickButton(pageRef *playwright.Page, testCond ElementCondition, curIdx int, maxCount int, username string, tag string) (Condition, error) {
-	fillCond, err := CommonHandleCondition(pageRef, testCond, curIdx, maxCount, username, tag)
+func clickButton(pageRef *playwright.Page, testCond ElementCondition, curIdx int, maxCount int, account *Account, tag string) (Condition, error) {
+	fillCond, err := CommonHandleCondition(pageRef, testCond, curIdx, maxCount, account, tag)
 	if err != nil {
 		return nil, err
 	}
@@ -346,7 +357,7 @@ func clickButton(pageRef *playwright.Page, testCond ElementCondition, curIdx int
 	return fillCond, nil
 }
 
-func CommonHandleCondition(page *playwright.Page, testCond Condition, curIdx int, maxCount int, userName string, tag string) (Condition, error) {
+func CommonHandleCondition(page *playwright.Page, testCond Condition, curIdx int, maxCount int, account *Account, tag string) (Condition, error) {
 
 	cond, err := WaitForConditions(page,
 		[]Condition{
@@ -358,10 +369,11 @@ func CommonHandleCondition(page *playwright.Page, testCond Condition, curIdx int
 			dismissSelectorCondition,
 			usernameInputCondition,
 			helpConfirmCondition,
+			loginCondition,
 			testCond,
 		})
 
-	log.Infof("[CommonHandleCondition.%s] Condition: %v, err: %v, account:%s", tag, cond, err, userName)
+	log.Infof("[CommonHandleCondition.%s] Condition: %v, err: %v, account:%s", tag, cond, err, account.Username)
 	if err != nil {
 		return nil, ErrPageTimeout
 	}
@@ -404,6 +416,17 @@ func CommonHandleCondition(page *playwright.Page, testCond Condition, curIdx int
 			if cond == testCond {
 				return testCond, nil
 			}
+		}
+	}
+
+	if cond == loginCondition {
+		if curIdx == maxCount-1 {
+			return nil, ErrNeedLogin
+		}
+		time.Sleep(time.Duration(3) * time.Second)
+		err = Login(account, page)
+		if err != nil {
+			return nil, err
 		}
 	}
 

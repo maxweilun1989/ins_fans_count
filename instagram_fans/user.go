@@ -12,7 +12,7 @@ var similarUserTableName string
 type UserSimilarFriends struct {
 	Id             int    `gorm:"primaryKey"`
 	OwnerUrl       string `gorm:"unique"`
-	SimilarFriends string `gorm:"default:null;size:1024"`
+	SimilarFriends string `gorm:"default:null;size:10240"`
 	Status         int    `gorm:"default:0"`
 }
 

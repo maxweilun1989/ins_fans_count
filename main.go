@@ -143,7 +143,7 @@ func UpdateUserInfo(appContext *instagram_fans.AppContext, mutex *sync.Mutex) er
 		FetchData:
 
 			//fetchErr := fetchBloggerData(appContext, pageContext, user)
-			_, fetchErr := fetchSimilarBloggersData(appContext, pageContext, user)
+			fetchErr := fetchSimilarBloggersData(appContext, pageContext, user)
 
 			if fetchErr != nil {
 				status := handleFetchErr(fetchErr, appContext, pageContext)
@@ -162,6 +162,9 @@ func UpdateUserInfo(appContext *instagram_fans.AppContext, mutex *sync.Mutex) er
 			set.Remove(user.Id)
 			//log.Infof("[%d] fans_count: %d, story_link: %s for %s", pageContext.goId, user.FansCount, user.StoryLink, user.Url)
 			//instagram_fans.UpdateSingleFansCountDataToDb(user, appContext)
+
+			log.Infof("[UpdateUserInfo.%d] update for %s, pageContext.goId", pageContext.goId, user.OwnerUrl)
+			instagram_fans.UpdateSimilarFriendsDataToDb(user, appContext)
 
 			time.Sleep(time.Duration(appContext.Config.DelayConfig.DelayForNext) * time.Millisecond)
 
@@ -187,8 +190,8 @@ func UpdateUserInfo(appContext *instagram_fans.AppContext, mutex *sync.Mutex) er
 	return nil
 }
 
-func fetchSimilarBloggersData(context *instagram_fans.AppContext, pageContext *PageContext, user *instagram_fans.UserSimilarFriends) (string, error) {
-	return instagram_fans.FetchSimilarBloggers(pageContext.Page, user.OwnerUrl, pageContext.Account.Username)
+func fetchSimilarBloggersData(context *instagram_fans.AppContext, pageContext *PageContext, user *instagram_fans.UserSimilarFriends) error {
+	return instagram_fans.FetchSimilarBloggers(pageContext.Page, user.OwnerUrl, pageContext.Account, user)
 }
 
 func fetchBloggerToHandle(db *gorm.DB, config *instagram_fans.Config, low int) ([]*instagram_fans.User, error) {
@@ -219,6 +222,9 @@ func fetchBloggerForSimilarFriends(db *gorm.DB, config *instagram_fans.Config, l
 		return users, nil
 	}
 	instagram_fans.MarkUserStatusIsWorkingForSimilar(users, db, table)
+	for _, user := range users {
+		user.Status = 1
+	}
 	return users, nil
 }
 
@@ -226,7 +232,7 @@ func fetchBloggerData(appContext *instagram_fans.AppContext, pageContext *PageCo
 	user.FansCount = -2
 
 	if appContext.Config.ParseFansCount {
-		fansCount, err := instagram_fans.GetFansCount(pageContext.Page, user.Url, pageContext.Account.Username)
+		fansCount, err := instagram_fans.GetFansCount(pageContext.Page, user.Url, pageContext.Account)
 		if err != nil {
 			return err
 		}
@@ -234,7 +240,7 @@ func fetchBloggerData(appContext *instagram_fans.AppContext, pageContext *PageCo
 		user.FansCount = fansCount
 	}
 	if appContext.Config.ParseStoryLink {
-		storyLink, err := instagram_fans.GetStoriesLink(pageContext.Page, user.Url, pageContext.Account.Username)
+		storyLink, err := instagram_fans.GetStoriesLink(pageContext.Page, user.Url, pageContext.Account)
 
 		if err != nil {
 			return err

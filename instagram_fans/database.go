@@ -169,6 +169,14 @@ func UpdateSingleFansCountDataToDb(user *User, appContext *AppContext) {
 	log.Printf("update user(%s) count %d, link: %s success", user.Url, user.FansCount, user.StoryLink)
 }
 
+func UpdateSimilarFriendsDataToDb(user *UserSimilarFriends, appContext *AppContext) {
+	db := appContext.Db
+	table := appContext.Config.SimilarUserTable
+
+	db.Table(table).Where("owner_url = ?", user.OwnerUrl).Updates(map[string]interface{}{"similar_friends": user.SimilarFriends, "status": user.Status})
+	log.Printf("update user(%s) similar friends %s success", user.OwnerUrl, user.SimilarFriends)
+}
+
 func InsertFilesToDb(path string, dsn string) {
 	file, err := os.Open(path)
 	if err != nil {
