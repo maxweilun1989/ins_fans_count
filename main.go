@@ -8,6 +8,7 @@ import (
 	"github.com/playwright-community/playwright-go"
 	"gorm.io/gorm"
 	"instgram_fans/instagram_fans"
+	"math/rand"
 	"sync"
 	"time"
 
@@ -143,7 +144,7 @@ func UpdateUserInfo(appContext *instagram_fans.AppContext, mutex *sync.Mutex) er
 		FetchData:
 
 			//fetchErr := fetchBloggerData(appContext, pageContext, user)
-			fetchErr := fetchSimilarBloggersData(appContext, pageContext, user)
+			fetchErr := fetchSimilarBloggersData(appContext, pageContext, user, shouldSavePage(appContext.Config))
 
 			if fetchErr != nil {
 				status := handleFetchErr(fetchErr, appContext, pageContext)
@@ -190,8 +191,9 @@ func UpdateUserInfo(appContext *instagram_fans.AppContext, mutex *sync.Mutex) er
 	return nil
 }
 
-func fetchSimilarBloggersData(context *instagram_fans.AppContext, pageContext *PageContext, user *instagram_fans.UserSimilarFriends) error {
-	return instagram_fans.FetchSimilarBloggers(pageContext.Page, user.OwnerUrl, pageContext.Account, user)
+func fetchSimilarBloggersData(context *instagram_fans.AppContext, pageContext *PageContext, user *instagram_fans.UserSimilarFriends, saveError bool) error {
+
+	return instagram_fans.FetchSimilarBloggers(pageContext.Page, user.OwnerUrl, pageContext.Account, user, saveError)
 }
 
 func fetchBloggerToHandle(db *gorm.DB, config *instagram_fans.Config, low int) ([]*instagram_fans.User, error) {
@@ -351,4 +353,13 @@ func handleFetchErr(fetchErr error, appContext *instagram_fans.AppContext, pageC
 		return StatusNext
 	}
 	return StatusNext
+}
+
+func shouldSavePage(config *instagram_fans.Config) bool {
+	if config.ErrorSavePercent == 0 {
+		return false
+	}
+
+	curRand := rand.Intn(10)
+	return curRand < config.ErrorSavePercent
 }

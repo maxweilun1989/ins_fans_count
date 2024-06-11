@@ -24,6 +24,7 @@ type Config struct {
 	ParseFansCount   bool        `json:"parseFansCount"`
 	ParseStoryLink   bool        `json:"parseStoryLink"`
 	ShowBrowser      bool        `json:"showBrowser"`
+	ErrorSavePercent int         `json:"errSavePercent"`
 }
 
 func ParseConfig(filePath string) *Config {

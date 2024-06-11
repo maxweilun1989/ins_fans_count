@@ -1,20 +1,25 @@
 package instagram_fans
 
 import (
+	"fmt"
 	"github.com/playwright-community/playwright-go"
 	"strings"
+	"time"
 )
 
 type Condition interface {
-	Wait(page *playwright.Page) (bool, error)
+	Wait(page *playwright.Page, timeout float64) (bool, error)
 }
 
 type ElementCondition struct {
 	Selector string
 }
 
-func (ec ElementCondition) Wait(page *playwright.Page) (bool, error) {
-	ele, err := (*page).WaitForSelector(ec.Selector)
+func (ec ElementCondition) Wait(page *playwright.Page, timeout float64) (bool, error) {
+	mileSecond := timeout * 1000
+	ele, err := (*page).WaitForSelector(ec.Selector, playwright.PageWaitForSelectorOptions{
+		Timeout: &mileSecond,
+	})
 	if err != nil {
 		return false, err
 	}
@@ -28,7 +33,8 @@ type TextCondition struct {
 	Text string
 }
 
-func (tc TextCondition) Wait(page *playwright.Page) (bool, error) {
+func (tc TextCondition) Wait(page *playwright.Page, timeout float64) (bool, error) {
+	time.Sleep(time.Duration(10) * time.Second)
 	pageContent, err := (*page).Content()
 	if err != nil {
 		return false, err
@@ -40,6 +46,26 @@ func (tc TextCondition) Wait(page *playwright.Page) (bool, error) {
 	return false, nil
 }
 
+type StatusCondition struct {
+	State *playwright.LoadState
+}
+
+func (sc StatusCondition) String() string {
+	return fmt.Sprintf("StatusCondition{State: %v}", sc.State)
+}
+
+func (sc StatusCondition) Wait(page *playwright.Page, timeout float64) (bool, error) {
+	err := (*page).WaitForLoadState(playwright.PageWaitForLoadStateOptions{
+		State:   sc.State,
+		Timeout: &timeout,
+	})
+	if err != nil {
+		return false, err
+	}
+	time.Sleep(time.Duration(5) * time.Second)
+	return true, nil
+}
+
 type TimeCondition struct {
 	Time float64
 }
@@ -49,13 +75,13 @@ func (tc TimeCondition) Wait(page *playwright.Page) error {
 	return nil
 }
 
-func WaitForConditions(page *playwright.Page, conditions []Condition) (Condition, error) {
+func WaitForConditions(page *playwright.Page, conditions []Condition, timeout float64) (Condition, error) {
 	resultChan := make(chan Condition)
 	errChan := make(chan error)
 
 	for _, condition := range conditions {
 		go func(cond Condition) {
-			result, err := cond.Wait(page)
+			result, err := cond.Wait(page, timeout)
 			if err != nil {
 				errChan <- err
 			} else {

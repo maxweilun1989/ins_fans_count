@@ -1,11 +1,12 @@
 package instagram_fans
 
 import (
-	"errors"
 	"github.com/charmbracelet/log"
 	"github.com/pkg/errors"
 	"github.com/playwright-community/playwright-go"
 	"net/url"
+	"os"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strconv"
@@ -22,6 +23,7 @@ var (
 	ErrPageNoEleFound  = errors.New("no element found")
 
 	PageTimeOut = time.Duration(60)
+	PageWait    = 30
 
 	httpErrorText         = "HTTP ERROR"
 	suspendAccountText    = "We suspended your account"
@@ -246,7 +248,7 @@ func GetStoriesLink(pageRef *playwright.Page, webSiteUrl string, account *Accoun
 	return "", errors.Errorf("No stories found")
 }
 
-func FetchSimilarBloggers(pageRef *playwright.Page, webSiteUrl string, account *Account, user *UserSimilarFriends) error {
+func FetchSimilarBloggers(pageRef *playwright.Page, webSiteUrl string, account *Account, user *UserSimilarFriends, saveError bool) error {
 	tag := "similar_blogger"
 	maxCount := 2
 	for i := 0; i < maxCount; i++ {
@@ -258,6 +260,9 @@ func FetchSimilarBloggers(pageRef *playwright.Page, webSiteUrl string, account *
 
 		fillCond, err := clickButton(pageRef, similarBloggerButtonSelector, i, maxCount, account, tag)
 		if err != nil {
+			if saveError {
+				_ = savePage(pageRef, webSiteUrl+".html")
+			}
 			if errors.Is(err, playwright.ErrTimeout) {
 				user.Status = 404
 			}
@@ -272,6 +277,9 @@ func FetchSimilarBloggers(pageRef *playwright.Page, webSiteUrl string, account *
 		fillCond, err = clickButton(pageRef, seeAllButtonSelector, i, maxCount, account, tag)
 
 		if err != nil {
+			if saveError {
+				_ = savePage(pageRef, webSiteUrl+".html")
+			}
 			if errors.Is(err, playwright.ErrTimeout) {
 				user.Status = 404
 			}
@@ -285,6 +293,9 @@ func FetchSimilarBloggers(pageRef *playwright.Page, webSiteUrl string, account *
 
 		fillCond, err = CommonHandleCondition(pageRef, suggestedFriendsCondition, i, maxCount, account, tag)
 		if err != nil {
+			if saveError {
+				_ = savePage(pageRef, webSiteUrl+".html")
+			}
 			return err
 		}
 
@@ -359,6 +370,7 @@ func clickButton(pageRef *playwright.Page, testCond ElementCondition, curIdx int
 
 func CommonHandleCondition(page *playwright.Page, testCond Condition, curIdx int, maxCount int, account *Account, tag string) (Condition, error) {
 
+	idleCondition := StatusCondition{State: playwright.LoadStateDomcontentloaded}
 	cond, err := WaitForConditions(page,
 		[]Condition{
 			passwordIncorrectCondition,
@@ -370,14 +382,27 @@ func CommonHandleCondition(page *playwright.Page, testCond Condition, curIdx int
 			usernameInputCondition,
 			helpConfirmCondition,
 			loginCondition,
+			idleCondition,
 			testCond,
-		})
+		}, float64(PageWait))
 
 	log.Infof("[CommonHandleCondition.%s] Condition: %v, err: %v, account:%s", tag, cond, err, account.Username)
+
 	if err != nil {
 		return nil, ErrPageTimeout
 	}
 	if cond == testCond {
+		return testCond, nil
+	}
+
+	if cond == idleCondition {
+		// document ready, test again
+		log.Infof("[CommonHandleCondition.%s] Document ready, test again", tag)
+		_, err := testCond.Wait(page, 5)
+		if err != nil {
+			log.Errorf("[CommonHandleCondition.%s] Retest failed: %v", tag, err)
+			return nil, ErrPageNoEleFound
+		}
 		return testCond, nil
 	}
 
@@ -408,7 +433,7 @@ func CommonHandleCondition(page *playwright.Page, testCond Condition, curIdx int
 			}
 			log.Info("[CommonHandleCondition] Click dismiss button, sleep 5s and test again")
 			time.Sleep(time.Duration(5) * time.Second)
-			cond, err := WaitForConditions(page, []Condition{testCond})
+			cond, err := WaitForConditions(page, []Condition{testCond}, float64(PageWait))
 			if err != nil {
 				log.Errorf("[CommonHandleCondition] Can not wait for test condition, %v", err)
 				return nil, ErrPageTimeout
@@ -506,4 +531,31 @@ func parseLink(link string) string {
 		return unescapeQuery
 	}
 	return final
+}
+
+func savePage(page *playwright.Page, webSiteUrl string) error {
+	htmlContent, err := (*page).Content()
+	if err != nil {
+		return err
+	}
+	folder := "errors"
+
+	if _, err := os.Stat(folder); err != nil {
+		err := os.Mkdir(folder, 0775)
+		if err != nil {
+			return err
+		}
+	}
+
+	parse, err := url.Parse(webSiteUrl)
+	if err != nil {
+		return err
+	}
+
+	filePath := filepath.Join(folder, parse.Path+".html")
+	err = os.WriteFile(filePath, []byte(htmlContent), 0666)
+	if err != nil {
+		return err
+	}
+	return nil
 }
