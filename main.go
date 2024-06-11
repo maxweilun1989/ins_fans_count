@@ -188,7 +188,7 @@ func UpdateUserInfo(appContext *instagram_fans.AppContext, mutex *sync.Mutex) er
 }
 
 func fetchSimilarBloggersData(context *instagram_fans.AppContext, pageContext *PageContext, user *instagram_fans.UserSimilarFriends) ([]string, error) {
-	return instagram_fans.FetchSimilarBloggers(pageContext.Page, user.OwnerUrl)
+	return instagram_fans.FetchSimilarBloggers(pageContext.Page, user.OwnerUrl, pageContext.Account.Username)
 }
 
 func fetchBloggerToHandle(db *gorm.DB, config *instagram_fans.Config, low int) ([]*instagram_fans.User, error) {
