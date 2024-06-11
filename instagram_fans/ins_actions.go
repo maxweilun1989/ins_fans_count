@@ -324,8 +324,16 @@ func CommonHandleCondition(page *playwright.Page, testCond Condition, curIdx int
 				log.Error("[CommonHandleCondition] Can not click dismiss button")
 				return nil, ErrUserInvalid
 			}
+			log.Info("[CommonHandleCondition] Click dismiss button, sleep 5s and test again")
 			time.Sleep(time.Duration(5) * time.Second)
-			return nil, nil
+			cond, err := WaitForConditions(page, []Condition{testCond})
+			if err != nil {
+				log.Errorf("[CommonHandleCondition] Can not wait for test condition, %v", err)
+				return nil, ErrPageTimeout
+			}
+			if cond == testCond {
+				return testCond, nil
+			}
 		}
 	}
 
