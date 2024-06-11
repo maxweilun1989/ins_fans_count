@@ -17,6 +17,7 @@ var (
 	ErrNeedLogin       = errors.New("need login")
 	ErrUserUnusable    = errors.New("user is unusable")
 	ErrPageUnavailable = errors.New("page is unavailable")
+	ErrPageTimeout     = errors.New("page timeout")
 
 	PageTimeOut = time.Duration(60)
 
@@ -91,7 +92,7 @@ func LogInToInstagram(account *Account, page *playwright.Page) error {
 	if _, err := (*page).Goto("https://www.instagram.com/accounts/login/", playwright.PageGotoOptions{
 		Timeout: playwright.Float(float64(time.Second * PageTimeOut / time.Millisecond)),
 	}); err != nil {
-		log.Fatalf("Can not go to Login Page, %v", err)
+		log.Errorf("[Login] Can not go to Login Page, %v", err)
 		return err
 	}
 
@@ -123,63 +124,22 @@ func Login(account *Account, page *playwright.Page) error {
 
 		time.Sleep(10 * time.Second)
 
-		cond, err := WaitForConditions(page,
-			[]Condition{passwordIncorrectCondition,
-				httpErrorCondition,
-				suspendedAccountCondition,
-				suspicionsLoginCondition,
-				dismissSelectorCondition,
-				usernameInputCondition,
-				helpConfirmCondition,
-				homeCondition,
-			})
-		if err != nil {
-			return ErrUserInvalid
-		}
+		cond, err := CommonHandleCondition(page, homeCondition, i, maxLoginCount, account.Username, "login")
+		log.Infof("[Login] account[%s] Condition %v, err: %v", account.Username, cond, err)
 
-		log.Infof("[Login] account[%s] Condition %v", account.Username, cond)
+		if err != nil {
+			return err
+		}
 
 		if cond == homeCondition {
+			log.Infof("[Login] success login!!!")
 			return nil
 		}
-
-		if cond == passwordIncorrectCondition ||
-			cond == suspicionsLoginCondition ||
-			cond == suspendedAccountCondition ||
-			cond == httpErrorCondition {
-			return ErrUserInvalid
-		}
-
-		if cond == helpConfirmCondition {
-			return ErrUserUnusable
-		}
-
-		if cond == dismissSelectorCondition {
-			dismissButton, err := (*page).QuerySelector(dismissSelector)
-			if err != nil {
-				return ErrUserInvalid
-			}
-			if dismissButton != nil {
-				if err := dismissButton.Click(); err != nil {
-					return ErrUserInvalid
-				}
-				time.Sleep(time.Duration(5) * time.Second)
-				return nil
-			}
-		}
-
-		if cond == usernameInputCondition {
-			if i == maxLoginCount-1 {
-				return ErrUserInvalid
-			}
-			continue
-		}
-		break
 	}
 	return nil
 }
 
-func GetFansCount(pageRef *playwright.Page, websiteUrl string) (int, error) {
+func GetFansCount(pageRef *playwright.Page, websiteUrl string, username string) (int, error) {
 	var page = *pageRef
 	maxCount := 2
 
@@ -191,44 +151,10 @@ func GetFansCount(pageRef *playwright.Page, websiteUrl string) (int, error) {
 			return -1, ErrUserInvalid
 		}
 
-		conditions := []Condition{
-			suspicionsLoginCondition,
-			httpErrorCondition,
-			suspendedAccountCondition,
-			helpConfirmCondition,
-			followersCondition,
-			dismissSelectorCondition,
-			usernameInputCondition,
-			pageNotValidCondition,
-		}
+		fillCond, err := CommonHandleCondition(pageRef, followersCondition, i, maxCount, username, "fans_count")
 
-		fillCond, err := WaitForConditions(pageRef, conditions)
 		if err != nil {
-			log.Errorf("[GetFansCount] can not wait for selector finished %v", err)
-			if errors.Is(err, playwright.ErrTimeout) {
-				return -2, ErrUserInvalid
-			}
-		}
-
-		log.Infof("[GetFansCount] Condition %v", fillCond)
-
-		if fillCond == pageNotValidCondition {
-			return -2, ErrPageUnavailable
-		}
-
-		if fillCond == passwordIncorrectCondition ||
-			fillCond == suspicionsLoginCondition ||
-			fillCond == suspendedAccountCondition ||
-			fillCond == httpErrorCondition {
-			return -2, ErrUserInvalid
-		}
-
-		if fillCond == helpConfirmCondition {
-			return -2, ErrUserUnusable
-		}
-
-		if fillCond == usernameInputCondition {
-			return -2, ErrNeedLogin
+			return -2, err
 		}
 
 		if fillCond == followersCondition {
@@ -256,26 +182,12 @@ func GetFansCount(pageRef *playwright.Page, websiteUrl string) (int, error) {
 				return count, nil
 			}
 		}
-
-		if fillCond == dismissSelectorCondition {
-			dismissButton, err := page.QuerySelector(dismissSelector)
-			if err != nil {
-				log.Errorf("[GetFansCount] could not query selector: %v", err)
-				return -1, ErrUserUnusable
-			}
-			if err := dismissButton.Click(); err != nil {
-				log.Errorf("[GetFansCount] could not click dismiss button: %v", err)
-				return -1, ErrUserUnusable
-			}
-			time.Sleep(time.Duration(5) * time.Second)
-			continue
-		}
 	}
 
 	return -2, errors.Errorf("No followers found")
 }
 
-func GetStoriesLink(pageRef *playwright.Page, webSiteUrl string) (string, error) {
+func GetStoriesLink(pageRef *playwright.Page, webSiteUrl string, username string) (string, error) {
 	page := *pageRef
 
 	storiesLink := findStoriesLink(webSiteUrl)
@@ -288,25 +200,12 @@ func GetStoriesLink(pageRef *playwright.Page, webSiteUrl string) (string, error)
 		if _, err := page.Goto(storiesLink, playwright.PageGotoOptions{
 			Timeout: playwright.Float(float64(time.Second * PageTimeOut / time.Millisecond)),
 		}); err != nil {
-			log.Printf("Can not go to stories page, %v", err)
+			log.Printf("[GetStoriesLink] Can not go to stories page, %v", err)
 			return "", nil
 		}
 
-		conditions := []Condition{
-			bodyElementCondition,
-			suspendedAccountCondition,
-			httpErrorCondition,
-			passwordIncorrectCondition,
-			suspicionsLoginCondition,
-			helpConfirmCondition,
-			dismissSelectorCondition,
-			pageNotValidCondition,
-			usernameInputCondition,
-		}
-
-		fillCond, err := WaitForConditions(pageRef, conditions)
+		fillCond, err := CommonHandleCondition(pageRef, bodyElementCondition, i, maxCount, username, "story_link")
 		log.Infof("[GetStoriesLink] Condition %v, err %v", fillCond, err)
-
 		if err != nil {
 			return "", ErrUserInvalid
 		}
@@ -325,42 +224,70 @@ func GetStoriesLink(pageRef *playwright.Page, webSiteUrl string) (string, error)
 			}
 			return strings.Join(result, ","), nil
 		}
-
-		if fillCond == dismissSelectorCondition {
-			dismissButton, err := page.QuerySelector(dismissSelector)
-			if err != nil {
-				log.Errorf("[GetStoriesLink] could not query selector: %v", err)
-				return "", ErrUserUnusable
-			}
-			if err := dismissButton.Click(); err != nil {
-				log.Errorf("[GetStoriesLink] could not click dismiss button: %v", err)
-				return "", ErrUserUnusable
-			}
-			time.Sleep(time.Duration(5) * time.Second)
-			continue
-		}
-
-		if fillCond == pageNotValidCondition {
-			return "", ErrPageUnavailable
-		}
-
-		if fillCond == passwordIncorrectCondition ||
-			fillCond == suspicionsLoginCondition ||
-			fillCond == suspendedAccountCondition ||
-			fillCond == httpErrorCondition {
-			return "", ErrUserInvalid
-		}
-
-		if fillCond == helpConfirmCondition {
-			return "", ErrUserUnusable
-		}
-
-		if fillCond == usernameInputCondition {
-			return "", ErrNeedLogin
-		}
-
 	}
 	return "", errors.Errorf("No stories found")
+}
+
+func CommonHandleCondition(page *playwright.Page, testCond Condition, curIdx int, maxCount int, userName string, tag string) (Condition, error) {
+
+	cond, err := WaitForConditions(page,
+		[]Condition{
+			passwordIncorrectCondition,
+			pageNotValidCondition,
+			httpErrorCondition,
+			suspendedAccountCondition,
+			suspicionsLoginCondition,
+			dismissSelectorCondition,
+			usernameInputCondition,
+			helpConfirmCondition,
+			testCond,
+		})
+
+	log.Infof("[CommonHandleCondition.%s] Condition: %v, err: %v, account:%s", tag, cond, err, userName)
+	if err != nil {
+		return nil, ErrPageTimeout
+	}
+	if cond == testCond {
+		return testCond, nil
+	}
+
+	if cond == passwordIncorrectCondition ||
+		cond == suspicionsLoginCondition ||
+		cond == suspendedAccountCondition ||
+		cond == httpErrorCondition {
+		return nil, ErrUserInvalid
+	}
+
+	if cond == pageNotValidCondition {
+		return nil, ErrPageUnavailable
+	}
+
+	if cond == helpConfirmCondition {
+		return nil, ErrUserUnusable
+	}
+
+	if cond == dismissSelectorCondition {
+		dismissButton, err := (*page).QuerySelector(dismissSelector)
+		if err != nil {
+			return nil, ErrUserInvalid
+		}
+		if dismissButton != nil {
+			if err := dismissButton.Click(); err != nil {
+				log.Error("[CommonHandleCondition] Can not click dismiss button")
+				return nil, ErrUserInvalid
+			}
+			time.Sleep(time.Duration(5) * time.Second)
+			return nil, nil
+		}
+	}
+
+	if cond == usernameInputCondition {
+		if curIdx == maxCount-1 {
+			return nil, ErrUserInvalid
+		}
+		return nil, nil
+	}
+	return nil, nil
 }
 
 func parseStoryLikes(lines []string) []string {

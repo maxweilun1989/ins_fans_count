@@ -34,16 +34,19 @@ func InitContext() (*AppContext, error) {
 	if err != nil {
 		return nil, ErrorGenerateUUID
 	}
+	log.Infof("Machine code: %s", machineCode)
 
 	db, err := ConnectToDB(config.Dsn)
 	if err != nil {
 		return nil, ErrorConnectDB
 	}
+	log.Infof("Connect to db(%s) success", config.Dsn)
 
 	accountDb, err := ConnectToDB(config.AccountDSN)
 	if err != nil {
 		return nil, ErrorConnectAccountDB
 	}
+	log.Infof("Connect to account db(%s) success", config.AccountDSN)
 
 	pw, err := playwright.Run()
 	if err != nil {

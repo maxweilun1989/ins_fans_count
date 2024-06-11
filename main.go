@@ -45,7 +45,7 @@ func (p *PageContext) Close() {
 }
 
 func main() {
-	log.Printf("start")
+	log.Info("start")
 
 	appContext, err := instagram_fans.InitContext()
 	if err != nil {
@@ -122,7 +122,7 @@ func UpdateUserInfo(appContext *instagram_fans.AppContext, mutex *sync.Mutex) er
 		for _, user := range users {
 		ChooseAccountAndLogin:
 			// 创建pageContext，找到一个可用的账号并登录成功
-			log.Infof("ChooseAccountAndLogin, context(%v)", pageContext)
+			log.Infof("[UpdateUserInfo] ChooseAccountAndLogin, context(%v)", pageContext)
 			if pageContext == nil {
 				pageContext, err = initPageContext(appContext, mutex)
 				if err != nil {
@@ -164,7 +164,7 @@ func UpdateUserInfo(appContext *instagram_fans.AppContext, mutex *sync.Mutex) er
 			time.Sleep(time.Duration(appContext.Config.DelayConfig.DelayForNext) * time.Millisecond)
 
 			count++
-			log.Infof("count[%s] handle %d blogger", pageContext.Account.Username, count)
+			log.Infof("[UpdateUesrInfo] count[%s] handle %d blogger", pageContext.Account.Username, count)
 
 			if count >= config.MaxCount {
 				pageContext.Close()
@@ -204,7 +204,7 @@ func fetchBloggerData(appContext *instagram_fans.AppContext, pageContext *PageCo
 	user.FansCount = -2
 
 	if appContext.Config.ParseFansCount {
-		fansCount, err := instagram_fans.GetFansCount(pageContext.Page, user.Url)
+		fansCount, err := instagram_fans.GetFansCount(pageContext.Page, user.Url, pageContext.Account.Username)
 		if err != nil {
 			return err
 		}
@@ -212,7 +212,8 @@ func fetchBloggerData(appContext *instagram_fans.AppContext, pageContext *PageCo
 		user.FansCount = fansCount
 	}
 	if appContext.Config.ParseStoryLink {
-		storyLink, err := instagram_fans.GetStoriesLink(pageContext.Page, user.Url)
+		storyLink, err := instagram_fans.GetStoriesLink(pageContext.Page, user.Url, pageContext.Account.Username)
+
 		if err != nil {
 			return err
 		}
@@ -237,10 +238,10 @@ func initPageContext(appContext *instagram_fans.AppContext, mutex *sync.Mutex) (
 
 		pageContext, err := getLoginPageContext(appContext, account)
 		if err != nil {
-			log.Errorf("Can not get login in mark user(%s) to -1/-2 ", account.Username)
+			log.Errorf("Can not get login in mark user(%s): error(%v) ", account.Username, err)
 			if errors.Is(err, instagram_fans.ErrUserUnusable) {
 				instagram_fans.MarkAccountStatus(appContext.AccountDb, appContext.Config.AccountTable, account, -2, appContext.MachineCode)
-			} else {
+			} else if errors.Is(err, instagram_fans.ErrUserInvalid) {
 				instagram_fans.MarkAccountStatus(appContext.AccountDb, appContext.Config.AccountTable, account, -1, appContext.MachineCode)
 			}
 
@@ -272,7 +273,7 @@ func getLoginPageContext(appContext *instagram_fans.AppContext, account *instagr
 	}
 	pageContext.Page = page
 
-	log.Printf("using account: %v", *account)
+	log.Infof("using account: %v", *account)
 
 	if err := instagram_fans.LogInToInstagram(account, page); err != nil {
 		log.Errorf("[%d] getLoginPage Can not login to instagram!!! %v", pageContext.goId, err)
@@ -317,7 +318,7 @@ func handleFetchErr(fetchErr error, appContext *instagram_fans.AppContext, pageC
 		return StatusCanRefetch
 	}
 
-	if errors.Is(fetchErr, instagram_fans.ErrPageUnavailable) {
+	if errors.Is(fetchErr, instagram_fans.ErrPageUnavailable) || errors.Is(fetchErr, instagram_fans.ErrPageTimeout) {
 		log.Errorf("[handleFetchErr] page unavailable %v", fetchErr)
 		return StatusNext
 	}
